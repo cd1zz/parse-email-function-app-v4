@@ -170,16 +170,22 @@ class EmailParser:
         # Extract URLs from href/src attributes before stripping HTML
         attr_pattern = r'(?i)(?:href|src)\s*=\s*[\'"\']([^\'"\']+)[\'"\']'
         for attr_url in re.findall(attr_pattern, text):
-            cleaned = attr_url.strip().strip('.,;:!?')
+            cleaned = attr_url.strip().strip('.,;:!?<>')
             if len(cleaned) > 3 and '.' in cleaned:
                 urls.add(cleaned.lower())
+
+        # Extract URLs that may be wrapped in angle brackets before HTML cleaning
+        for match in self.URL_PATTERN.finditer(text):
+            raw_url = match.group().strip('.,;:!?<>')
+            if len(raw_url) > 3 and '.' in raw_url:
+                urls.add(raw_url.lower())
 
         # Clean HTML for further text extraction
         clean_text = self._clean_html(text)
 
-        # Extract URLs from plain text
+        # Extract URLs from plain text after cleaning
         for match in self.URL_PATTERN.finditer(clean_text):
-            url = match.group().strip('.,;:!?')
+            url = match.group().strip('.,;:!?<>')
             if len(url) > 3 and '.' in url:
                 urls.add(url.lower())
         
