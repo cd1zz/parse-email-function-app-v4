@@ -733,32 +733,25 @@ class EmailParser:
                         if content_type == 'message/rfc822':
                             nested_msg = part.get_payload()[0] if part.get_payload() else None
                             if isinstance(nested_msg, EmailMessage):
-                                # Check the text content of this nested message
-                                for sub_part in nested_msg.walk():
-                                    if sub_part.get_content_type() in ['text/plain', 'text/html']:
-                                        try:
-                                            sub_payload = sub_part.get_payload(decode=True)
-                                            if sub_payload and isinstance(sub_payload, bytes):
-                                                sub_content = sub_payload.decode('utf-8', errors='ignore')
-                                            else:
-                                                sub_content = str(sub_payload) if sub_payload else ''
-                                            
-                                            if 'bit.ly' in sub_content.lower():
-                                                logger.debug(f"*** FOUND BIT.LY in nested message {sub_part.get_content_type()}! ***")
-                                                bit_idx = sub_content.lower().find('bit.ly')
-                                                start = max(0, bit_idx - 100)
-                                                end = min(len(sub_content), bit_idx + 100)
-                                                logger.debug(f"Context: ...{sub_content[start:end]}...")
-                                        except Exception as e:
-                                            logger.debug(f"Error checking nested content: {e}")
-                                            
+                                # Debug check remains...
+
                                 # Recursively walk the nested message
+                                # IMPORTANT: Pass parent's text content list to share collection
+                                nested_parser = EmailParser(
+                                    max_depth=self.max_depth,
+                                    include_raw=self.include_raw,
+                                    parent_text_content=self.all_text_content  # Share the text collection!
+                                )
+
+                                # Process the nested message content
+                                nested_content = list(nested_parser._walk_message(nested_msg, depth + 1))
+
                                 result = {
                                     'type': 'nested_email',
                                     'mime_type': content_type,
                                     'nested_content': {
                                         'source': f"nested_email_{id(part)}",
-                                        'content': list(self._walk_message(nested_msg, depth + 1)),
+                                        'content': nested_content,
                                         'depth': depth + 1
                                     },
                                     'depth': depth
