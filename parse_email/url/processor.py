@@ -1,9 +1,13 @@
 """URL processor module for high-level URL processing operations."""
 
 import logging
-import requests
 import time
 import urllib.parse
+
+try:
+    import requests  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    requests = None
 from .validator import UrlValidator
 from .decoder import UrlDecoder
 
@@ -17,6 +21,10 @@ class UrlProcessor:
     def expand_url(url: str, timeout: int = 5, max_redirects: int = 10) -> str:
         """Expand a shortened URL by following redirects."""
         if not url or not UrlValidator.is_url_shortened(url):
+            return url
+
+        if requests is None:
+            logger.debug("requests library not available; skipping URL expansion")
             return url
 
         logger.debug(f"Expanding shortened URL: {url}")
@@ -35,21 +43,22 @@ class UrlProcessor:
             expanded_url = response.url
             logger.debug(f"URL expanded to: {expanded_url}")
             return expanded_url
-        except requests.exceptions.RequestException as e:
+        except Exception as e:  # pragma: no cover - network errors
             logger.warning(f"Error expanding URL {url}: {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                return e.response.url
-            if hasattr(e, 'request'):
-                return e.request.url
-            if url.startswith('https://'):
-                fallback_url = url.replace('https://', 'http://', 1)
-                logger.debug(f"Retrying with HTTP: {fallback_url}")
-                try:
-                    response = session.head(fallback_url, allow_redirects=True, timeout=timeout)
-                    return response.url
-                except requests.RequestException:
-                    pass
-        return url
+            if requests is not None and isinstance(e, requests.exceptions.RequestException):
+                if hasattr(e, 'response') and e.response is not None:
+                    return e.response.url
+                if hasattr(e, 'request'):
+                    return e.request.url
+                if url.startswith('https://'):
+                    fallback_url = url.replace('https://', 'http://', 1)
+                    logger.debug(f"Retrying with HTTP: {fallback_url}")
+                    try:
+                        response = session.head(fallback_url, allow_redirects=True, timeout=timeout)
+                        return response.url
+                    except Exception:
+                        pass
+            return url
 
     @staticmethod
     def batch_expand_urls(urls, delay: float = 0.5):

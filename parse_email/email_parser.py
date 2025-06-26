@@ -418,44 +418,90 @@ class EmailParser:
             }
 
     def _msg_to_rfc822(self, msg_obj) -> bytes:
-        """Convert extract_msg Message object to RFC822 format"""
+        """Convert extract_msg Message object to RFC822 format."""
         try:
-            # Build a basic RFC822 message from MSG properties
             lines = []
-            
+
             # Add headers
             if hasattr(msg_obj, 'subject') and msg_obj.subject:
-                lines.append(f"Subject: {msg_obj.subject}")
-            
+                subj = msg_obj.subject
+                if isinstance(subj, bytes):
+                    subj = self._to_str(subj, None)[0]
+                lines.append(f"Subject: {subj}")
+
             if hasattr(msg_obj, 'sender') and msg_obj.sender:
-                lines.append(f"From: {msg_obj.sender}")
-                
+                sender = msg_obj.sender
+                if isinstance(sender, bytes):
+                    sender = self._to_str(sender, None)[0]
+                lines.append(f"From: {sender}")
+
             if hasattr(msg_obj, 'to') and msg_obj.to:
-                lines.append(f"To: {msg_obj.to}")
-                
+                to_addr = msg_obj.to
+                if isinstance(to_addr, bytes):
+                    to_addr = self._to_str(to_addr, None)[0]
+                lines.append(f"To: {to_addr}")
+
             if hasattr(msg_obj, 'date') and msg_obj.date:
-                lines.append(f"Date: {msg_obj.date}")
-                
+                date_val = msg_obj.date
+                if isinstance(date_val, bytes):
+                    date_val = self._to_str(date_val, None)[0]
+                lines.append(f"Date: {date_val}")
+
             if hasattr(msg_obj, 'messageId') and msg_obj.messageId:
-                lines.append(f"Message-ID: {msg_obj.messageId}")
-            
-            # Add content type
-            lines.append("Content-Type: text/plain; charset=utf-8")
-            lines.append("Content-Transfer-Encoding: 8bit")
-            
-            # Empty line before body
-            lines.append("")
-            
-            # Add body
-            if hasattr(msg_obj, 'body') and msg_obj.body:
-                lines.append(msg_obj.body)
-            
-            # Join with CRLF
-            rfc822_content = "\r\n".join(lines)
+                mid = msg_obj.messageId
+                if isinstance(mid, bytes):
+                    mid = self._to_str(mid, None)[0]
+                lines.append(f"Message-ID: {mid}")
+
+            has_html = hasattr(msg_obj, 'htmlBody') and msg_obj.htmlBody
+            has_text = hasattr(msg_obj, 'body') and msg_obj.body
+
+            html_body = msg_obj.htmlBody if has_html else None
+            if isinstance(html_body, bytes):
+                html_body = self._to_str(html_body, None)[0]
+            text_body = msg_obj.body if has_text else None
+            if isinstance(text_body, bytes):
+                text_body = self._to_str(text_body, None)[0]
+
+            if has_html and has_text:
+                boundary = 'msg_to_rfc822_boundary'
+                lines.append(f"Content-Type: multipart/alternative; boundary=\"{boundary}\"")
+                lines.append('MIME-Version: 1.0')
+                lines.append('')
+
+                lines.append(f"--{boundary}")
+                lines.append('Content-Type: text/plain; charset=utf-8')
+                lines.append('Content-Transfer-Encoding: 8bit')
+                lines.append('')
+                lines.append(text_body or '')
+                lines.append('')
+
+                lines.append(f"--{boundary}")
+                lines.append('Content-Type: text/html; charset=utf-8')
+                lines.append('Content-Transfer-Encoding: 8bit')
+                lines.append('')
+                lines.append(html_body or '')
+                lines.append('')
+                lines.append(f"--{boundary}--")
+            elif has_html:
+                lines.append('Content-Type: text/html; charset=utf-8')
+                lines.append('Content-Transfer-Encoding: 8bit')
+                lines.append('')
+                lines.append(html_body or '')
+            elif has_text:
+                lines.append('Content-Type: text/plain; charset=utf-8')
+                lines.append('Content-Transfer-Encoding: 8bit')
+                lines.append('')
+                lines.append(text_body or '')
+            else:
+                lines.append('Content-Type: text/plain; charset=utf-8')
+                lines.append('')
+                lines.append('[No body content found]')
+
+            rfc822_content = '\r\n'.join(lines)
             return rfc822_content.encode('utf-8')
-            
+
         except Exception as e:
-            # Fallback: create minimal RFC822 message
             fallback_content = f"Subject: [MSG Parse Error: {e}]\r\n\r\n[Could not convert MSG to RFC822 format]"
             return fallback_content.encode('utf-8')
     
