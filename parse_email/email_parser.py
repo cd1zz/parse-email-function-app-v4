@@ -53,10 +53,21 @@ class EmailParser:
     
     # Regex patterns for artifact extraction (permissive)
     URL_PATTERN = re.compile(
-        r"(?i)\b(?:(?:https?|ftp|ftps|sftp|file|mailto|tel|sms)://|(?:www\d{0,3}\.))" 
+        r"(?i)\b(?:(?:https?|ftp|ftps|sftp|file|mailto|tel|sms)://|(?:www\d{0,3}\.))"
         r"[^\s<>\"'{}|\\^`\[\]]+",
         re.IGNORECASE,
     )
+
+    # Detect scheme prefixes for URLs
+    URL_SCHEME_PREFIX = re.compile(r'^[a-z][a-z0-9+.-]*://', re.IGNORECASE)
+
+    # Common file extensions that should not be treated as TLDs
+    COMMON_FILE_EXTENSIONS = {
+        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'xml',
+        'json', 'zip', 'rar', '7z', 'gz', 'tar', 'jpg', 'jpeg', 'png', 'gif',
+        'bmp', 'svg', 'webp', 'tiff', 'eml', 'msg', 'dat', 'html', 'htm', 'php',
+        'js', 'css', 'exe', 'dll', 'bin', 'bat', 'sh'
+    }
     
     IP_PATTERN = re.compile(
         r'\b(?:'
@@ -166,19 +177,34 @@ class EmailParser:
             return {'urls': set(), 'ips': set(), 'domains': set()}
 
         urls = set()
+        domains = set()
 
         # Extract URLs from href/src attributes before stripping HTML
         attr_pattern = r'(?i)(?:href|src)\s*=\s*[\'"\']([^\'"\']+)[\'"\']'
         for attr_url in re.findall(attr_pattern, text):
             cleaned = attr_url.strip().strip('.,;:!?<>')
             if len(cleaned) > 3 and '.' in cleaned:
-                urls.add(cleaned.lower())
+                if self.URL_SCHEME_PREFIX.match(cleaned) or '/' in cleaned or '?' in cleaned or '#' in cleaned:
+                    urls.add(cleaned.lower())
+                elif self.DOMAIN_PATTERN.fullmatch(cleaned):
+                    tld = cleaned.rsplit('.', 1)[-1].lower()
+                    if tld not in self.COMMON_FILE_EXTENSIONS:
+                        domains.add(cleaned.lower())
+                else:
+                    urls.add(cleaned.lower())
 
         # Extract URLs that may be wrapped in angle brackets before HTML cleaning
         for match in self.URL_PATTERN.finditer(text):
-            raw_url = match.group().strip('.,;:!?<>')
-            if len(raw_url) > 3 and '.' in raw_url:
-                urls.add(raw_url.lower())
+            raw_val = match.group().strip('.,;:!?<>')
+            if len(raw_val) > 3 and '.' in raw_val:
+                if self.URL_SCHEME_PREFIX.match(raw_val) or '/' in raw_val or '?' in raw_val or '#' in raw_val:
+                    urls.add(raw_val.lower())
+                elif self.DOMAIN_PATTERN.fullmatch(raw_val):
+                    tld = raw_val.rsplit('.', 1)[-1].lower()
+                    if tld not in self.COMMON_FILE_EXTENSIONS:
+                        domains.add(raw_val.lower())
+                else:
+                    urls.add(raw_val.lower())
 
         # Clean HTML for further text extraction
         clean_text = self._clean_html(text)
@@ -187,7 +213,14 @@ class EmailParser:
         for match in self.URL_PATTERN.finditer(clean_text):
             url = match.group().strip('.,;:!?<>')
             if len(url) > 3 and '.' in url:
-                urls.add(url.lower())
+                if self.URL_SCHEME_PREFIX.match(url) or '/' in url or '?' in url or '#' in url:
+                    urls.add(url.lower())
+                elif self.DOMAIN_PATTERN.fullmatch(url):
+                    tld = url.rsplit('.', 1)[-1].lower()
+                    if tld not in self.COMMON_FILE_EXTENSIONS:
+                        domains.add(url.lower())
+                else:
+                    urls.add(url.lower())
         
         # Extract IP addresses
         ips = set()
@@ -204,15 +237,16 @@ class EmailParser:
                     ips.add(ip_str)
         
         # Extract domains
-        domains = set()
         for match in self.DOMAIN_PATTERN.finditer(clean_text):
             domain = match.group().lower().strip('.,;:!?')
             # Basic validation
-            if (len(domain) > 3 and 
-                domain.count('.') >= 1 and 
-                not domain.startswith('.') and 
+            if (len(domain) > 3 and
+                domain.count('.') >= 1 and
+                not domain.startswith('.') and
                 not domain.endswith('.')):
-                domains.add(domain)
+                tld = domain.rsplit('.', 1)[-1].lower()
+                if tld not in self.COMMON_FILE_EXTENSIONS:
+                    domains.add(domain)
         
         # Remove domains that are already captured in URLs
         filtered_domains = set()
