@@ -293,14 +293,24 @@ class EmailParser:
         """
         block_type = content_block.get('type', '')
         content = content_block.get('content', '')
-        
+
         encoding = content_block.get('encoding')
+
+        # ADD DETAILED DEBUG LOGGING
+        logger.debug(
+            f"_collect_text_content: type={block_type}, encoding={encoding}, "
+            f"content_length={len(str(content))}, mime_type={content_block.get('mime_type', 'N/A')}"
+        )
 
         # Skip adding this block's own text if it's empty or base64 encoded,
         # but still recurse into any nested content so artifacts aren't lost
         if not content or encoding == 'base64':
+            logger.debug(
+                f"  Skipping text collection: empty={not content}, base64={encoding == 'base64'}"
+            )
             nested_content = content_block.get('nested_content')
             if nested_content:
+                logger.debug("  Has nested content, processing recursively")
                 if isinstance(nested_content, dict):
                     nested_blocks = nested_content.get('content', [])
                     if isinstance(nested_blocks, list):
@@ -323,11 +333,18 @@ class EmailParser:
         elif block_type in ['email_body', 'mime_part']:
             # Extract from body/content
             if isinstance(content, str) and content.strip():
+                logger.debug(f"  Collecting text from {block_type}, length={len(content)}")
+                if 'bit.ly' in content:
+                    logger.debug(f"  *** This block contains bit.ly! ***")
+
                 self.all_text_content.append({
                     'text': content,
                     'source': f"{block_type}_{content_block.get('mime_type', 'unknown')}",
                     'block_type': block_type
                 })
+                logger.debug(f"  Total text blocks collected so far: {len(self.all_text_content)}")
+            else:
+                logger.debug(f"  Skipping: not string or empty")
         
         elif block_type == 'tnef_container':
             # Extract from TNEF attachments
