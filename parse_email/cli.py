@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import argparse
+import logging
 from .email_parser import EmailParser
 
 def main():
@@ -11,10 +12,19 @@ def main():
     parser.add_argument('--max-depth', type=int, default=10, help='Maximum recursion depth (default: 10)')
     parser.add_argument('--include-raw', action='store_true', 
                        help='Include raw base64 content for forensic analysis')
-    parser.add_argument('--include-large-images', action='store_true', 
+    parser.add_argument('--include-large-images', action='store_true',
                        help='Include large images in output (may create very large files)')
-    
+    parser.add_argument('--log-file', help='Write debug log to specified file')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+
     args = parser.parse_args()
+
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        filename=args.log_file,
+        format='%(asctime)s %(levelname)s %(name)s: %(message)s'
+    )
     
     # Check for optional dependencies
     print("🔍 Checking optional dependencies:")
@@ -105,9 +115,11 @@ def main():
                         print(f"    - {mime_type}: {count}")
             else:
                 print(f"✗ Error: {result['error']}")
+                logging.error(f"Error parsing {file_path}: {result['error']}")
                 
         except Exception as e:
             print(f"✗ Error parsing {file_path}: {e}")
+            logging.exception("Unhandled exception while parsing file")
             results.append({
                 'source': file_path,
                 'error': str(e)
