@@ -395,7 +395,11 @@ class EmailParser:
                 rfc822_content = self._msg_to_rfc822(msg_obj)
                 
                 # Parse the converted content recursively
-                nested_parser = EmailParser(max_depth=self.max_depth, include_raw=self.include_raw)
+                nested_parser = EmailParser(
+                    max_depth=self.max_depth, 
+                    include_raw=self.include_raw,
+                    parent_text_content=self.all_text_content  # Add this
+                )                
                 nested_result = nested_parser.parse(
                     rfc822_content, 
                     f"nested_msg_{part_id}", 
