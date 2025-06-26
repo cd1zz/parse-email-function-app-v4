@@ -726,13 +726,25 @@ class EmailParser:
                         if content_type == 'message/rfc822':
                             nested_msg = part.get_payload()[0] if part.get_payload() else None
                             if isinstance(nested_msg, EmailMessage):
+                                # Debug check remains...
+
                                 # Recursively walk the nested message
+                                # IMPORTANT: Pass parent's text content list to share collection
+                                nested_parser = EmailParser(
+                                    max_depth=self.max_depth,
+                                    include_raw=self.include_raw,
+                                    parent_text_content=self.all_text_content  # Share the text collection!
+                                )
+
+                                # Process the nested message content
+                                nested_content = list(nested_parser._walk_message(nested_msg, depth + 1))
+
                                 result = {
                                     'type': 'nested_email',
                                     'mime_type': content_type,
                                     'nested_content': {
                                         'source': f"nested_email_{id(part)}",
-                                        'content': list(self._walk_message(nested_msg, depth + 1)),
+                                        'content': nested_content,
                                         'depth': depth + 1
                                     },
                                     'depth': depth
