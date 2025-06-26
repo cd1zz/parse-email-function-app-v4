@@ -10,6 +10,9 @@ extract-msg>=0.41.0
 # Enables extraction of attachments from TNEF containers
 tnefparse>=1.3.0
 
+# Optional: Validate domains using TLD lists
+tldextract>=3.4.0
+
 # Optional: Improved charset detection
 # Provides better text encoding detection for email content
 chardet>=5.0.0
