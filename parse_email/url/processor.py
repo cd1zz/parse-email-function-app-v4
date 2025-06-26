@@ -187,7 +187,5 @@ class UrlProcessor:
         for attachment in attachments:
             if 'urls' in attachment:
                 attachment_urls.extend(attachment['urls'])
-                attachment_copy = attachment.copy()
-                del attachment_copy['urls']
         logger.debug(f"Extracted {len(attachment_urls)} URLs from attachments")
         return attachment_urls
