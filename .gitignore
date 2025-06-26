@@ -1,0 +1,22 @@
+*.eml
+output.json
+# Ignore virtual environment directories
+.venv/
+venv/
+*/.venv
+*/venv
+__pycache__/
+*/__pycache__
+*.pyc
+
+# Ignore environment variables
+.env
+.env/
+
+# Ignore certificate and key files
+*.pfx
+*.der
+*.crt
+*.pem
+
+.python_packages/
