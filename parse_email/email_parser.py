@@ -1053,6 +1053,22 @@ class EmailParser:
     
     def _build_output(self, source_name: str, msg: EmailMessage = None) -> Dict[str, Any]:
         """Build the final output structure"""
+
+        # Debug logging of collected text blocks and parser depth
+        logger.debug(f"=== _build_output for {source_name} (depth={self.current_depth}) ===")
+        logger.debug(f"Total content blocks: {len(self.content_blocks)}")
+        logger.debug(f"Total text blocks in all_text_content: {len(self.all_text_content)}")
+
+        for i, text_block in enumerate(self.all_text_content):
+            source = text_block['source']
+            text_len = len(text_block['text'])
+            preview = text_block['text'][:100].replace('\n', ' ') if text_len > 0 else '[empty]'
+            logger.debug(f"  Text block {i}: source={source}, length={text_len}")
+            logger.debug(f"    Preview: {preview}...")
+            if 'bit.ly' in text_block['text']:
+                logger.debug("    *** THIS BLOCK CONTAINS bit.ly! ***")
+
+        logger.debug("=== End text block summary ===")
         
         # Sort content blocks by depth and type for better organization
         sorted_blocks = sorted(self.content_blocks, 
