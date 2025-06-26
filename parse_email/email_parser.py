@@ -70,14 +70,9 @@ class EmailParser:
     }
     
     IP_PATTERN = re.compile(
-        r'\b(?:'
-        r'(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'  # IPv4
-        r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)'
+        r'(?:\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b)'
         r'|'
-        r'(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}'          # IPv6 full
-        r'|'
-        r'::1|::ffff:[0-9\.]+|::[0-9a-fA-F:]*'               # IPv6 abbreviated
-        r')\b'
+        r'(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}'
     )
     
     DOMAIN_PATTERN = re.compile(
@@ -222,19 +217,20 @@ class EmailParser:
                 else:
                     urls.add(url.lower())
         
-        # Extract IP addresses
+        # Extract IP addresses using permissive candidate search
         ips = set()
-        for match in self.IP_PATTERN.finditer(clean_text):
-            ip_str = match.group()
+        ip_candidates = re.findall(r'[0-9a-fA-F:.]{3,}', clean_text)
+        for cand in ip_candidates:
+            cand = cand.strip("[]()<>\"' ,;")
+            if '.' not in cand and ':' not in cand:
+                continue
+            if len(cand) > 45:
+                continue
             try:
-                # Validate IP address
-                ip_obj = ipaddress.ip_address(ip_str)
-                # Skip localhost and private IPs for noise reduction (but keep if user wants permissive)
+                ip_obj = ipaddress.ip_address(cand)
                 ips.add(str(ip_obj))
             except ValueError:
-                # If validation fails, still add if it looks like IP (permissive mode)
-                if re.match(r'^\d+\.\d+\.\d+\.\d+$', ip_str):
-                    ips.add(ip_str)
+                continue
         
         # Extract domains
         for match in self.DOMAIN_PATTERN.finditer(clean_text):
