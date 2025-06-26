@@ -79,7 +79,8 @@ def main():
                 
                 # Show sample artifacts if found
                 if artifacts['urls'][:3]:
-                    print(f"    Sample URLs: {', '.join(artifacts['urls'][:3])}")
+                    sample_urls = [u['original_url'] for u in artifacts['urls'][:3] if isinstance(u, dict)]
+                    print(f"    Sample URLs: {', '.join(sample_urls)}")
                 if artifacts['ip_addresses'][:3]:
                     print(f"    Sample IPs: {', '.join(artifacts['ip_addresses'][:3])}")
                 if artifacts['domains'][:3]:

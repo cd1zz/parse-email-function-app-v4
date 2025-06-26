@@ -31,6 +31,9 @@ from email import policy
 from email.parser import BytesParser
 from email.message import EmailMessage
 
+# URL processing utilities
+from .url.processor import UrlProcessor
+
 class EmailParser:
     """Parser using standard library email package with artifact extraction"""
     
@@ -915,13 +918,17 @@ class EmailParser:
                     'block_type': text_block['block_type']
                 }
         
-        # Convert sets to sorted lists for JSON serialization
+        # Process and expand URLs
+        processed = UrlProcessor.process_urls(sorted(all_urls))
+        expanded = UrlProcessor.batch_expand_urls(processed, delay=0)
+        expanded = UrlProcessor.fix_url_expansions(expanded)
+
         return {
-            'urls': sorted(list(all_urls)),
+            'urls': expanded,
             'ip_addresses': sorted(list(all_ips)),
             'domains': sorted(list(all_domains)),
             'statistics': {
-                'total_urls': len(all_urls),
+                'total_urls': len(expanded),
                 'total_ips': len(all_ips),
                 'total_domains': len(all_domains),
                 'sources_with_artifacts': len(sources_breakdown),

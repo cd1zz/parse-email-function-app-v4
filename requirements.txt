@@ -21,6 +21,9 @@ chardet>=5.0.0
 # Note: Current implementation uses regex, but urlextract could be added for better accuracy
 # urlextract>=1.8.0
 
+# Required for URL expansion features
+requests>=2.0.0
+
 # Development/Testing dependencies (uncomment if needed)
 # pytest>=7.0.0
 # pytest-cov>=4.0.0
