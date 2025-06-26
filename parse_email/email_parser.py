@@ -582,9 +582,22 @@ class EmailParser:
                 content_type = part.get_content_type().lower()
 
                 logger.debug(f"{'  ' * depth}  Part {i}: {content_type}")
-                
+
+                # Additional debug for multipart/alternative parts
+                if content_type == 'multipart/alternative':
+                    logger.debug(f"{'  ' * depth}    Found multipart/alternative - checking if it has parts")
+                    if hasattr(part, 'is_multipart') and part.is_multipart():
+                        sub_parts = list(part.iter_parts())
+                        logger.debug(f"{'  ' * depth}    Sub-parts count: {len(sub_parts)}")
+                    else:
+                        logger.debug(f"{'  ' * depth}    Not actually multipart or no sub-parts")
+
                 # Decode payload first for all processing
                 payload = part.get_payload(decode=True) or b''
+
+                # Additional debug for large text/plain parts
+                if content_type == 'text/plain' and len(payload) > 1000:
+                    logger.debug(f"{'  ' * depth}    *** Found significant text/plain part: {len(payload)} bytes")
                 
                 # 1️⃣ Check for binary email formats FIRST (before MIME type filtering)
                 binary_kind = self._detect_binary_email(payload)
