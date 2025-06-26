@@ -116,11 +116,11 @@ class EmailParser:
         # Fallback: basic alphabetic TLD check
         return bool(re.fullmatch(r'[a-z]{2,}', tld))
     
-    def __init__(self, max_depth: int = 10, include_raw: bool = False):
+    def __init__(self, max_depth: int = 10, include_raw: bool = False, parent_text_content: list = None):
         self.max_depth = max_depth
         self.include_raw = include_raw
+        self.parent_text_content = parent_text_content  # Add this
         if tldextract:
-            # Use bundled suffix list to avoid network lookups
             self.tld_extractor = tldextract.TLDExtract(suffix_list_urls=None)
         else:
             self.tld_extractor = None
@@ -132,7 +132,9 @@ class EmailParser:
         self.content_blocks = []
         self.current_depth = 0
         self.statistics = {}
-        self.all_text_content = []  # Store all text for artifact extraction
+        # Use parent's list if provided, otherwise create new
+        self.all_text_content = self.parent_text_content if self.parent_text_content is not None else []
+
     
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """Parse an email file"""
@@ -424,6 +426,31 @@ class EmailParser:
         """Convert extract_msg Message object to RFC822 format."""
         try:
             lines = []
+            
+            # ADD THIS DEBUG LOGGING HERE - RIGHT AT THE START
+            logger.debug("=== MSG to RFC822 Conversion Debug ===")
+            
+            # Check and log the body content
+            if hasattr(msg_obj, 'body') and msg_obj.body:
+                body_preview = msg_obj.body[:500] if isinstance(msg_obj.body, str) else str(msg_obj.body)[:500]
+                logger.debug(f"MSG text body found ({len(str(msg_obj.body))} chars)")
+                logger.debug(f"Text body preview: {body_preview}")
+                if 'bit.ly' in str(msg_obj.body):
+                    logger.debug("*** FOUND bit.ly in text body! ***")
+            else:
+                logger.debug("No text body found in MSG")
+                
+            # Check and log the HTML body content  
+            if hasattr(msg_obj, 'htmlBody') and msg_obj.htmlBody:
+                html_preview = msg_obj.htmlBody[:500] if isinstance(msg_obj.htmlBody, str) else str(msg_obj.htmlBody)[:500]
+                logger.debug(f"MSG HTML body found ({len(str(msg_obj.htmlBody))} chars)")
+                logger.debug(f"HTML body preview: {html_preview}")
+                if 'bit.ly' in str(msg_obj.htmlBody):
+                    logger.debug("*** FOUND bit.ly in HTML body! ***")
+            else:
+                logger.debug("No HTML body found in MSG")
+                
+            logger.debug("=== End MSG Debug ===")
     
             # Add headers
             if hasattr(msg_obj, 'subject') and msg_obj.subject:
@@ -686,7 +713,11 @@ class EmailParser:
                         
                         # Fallback: parse raw bytes as email
                         if payload:
-                            nested_parser = EmailParser(max_depth=self.max_depth, include_raw=self.include_raw)
+                            nested_parser = EmailParser(
+                                max_depth=self.max_depth, 
+                                include_raw=self.include_raw,
+                                parent_text_content=self.all_text_content  # Pass the parent's list
+                            )
                             nested_result = nested_parser.parse(
                                 payload,
                                 source_name=f"nested_email_{id(part)}",
