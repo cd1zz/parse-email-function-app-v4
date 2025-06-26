@@ -302,6 +302,14 @@ class EmailParser:
             f"content_length={len(str(content))}, mime_type={content_block.get('mime_type', 'N/A')}"
         )
 
+        if isinstance(content, str) and 'bit.ly' in content.lower():
+            logger.debug(f"*** FOUND BIT.LY in {block_type}! ***")
+            logger.debug(f"Block details: type={block_type}, mime_type={content_block.get('mime_type')}, encoding={encoding}")
+            bit_idx = content.lower().find('bit.ly')
+            start = max(0, bit_idx - 50)
+            end = min(len(content), bit_idx + 50)
+            logger.debug(f"Context: ...{content[start:end]}...")
+
         # Skip adding this block's own text if it's empty or base64 encoded,
         # but still recurse into any nested content so artifacts aren't lost
         if not content or encoding == 'base64':
@@ -331,11 +339,10 @@ class EmailParser:
                     })
         
         elif block_type in ['email_body', 'mime_part']:
-            # Extract from body/content
             if isinstance(content, str) and content.strip():
                 logger.debug(f"  Collecting text from {block_type}, length={len(content)}")
                 if 'bit.ly' in content:
-                    logger.debug(f"  *** This block contains bit.ly! ***")
+                    logger.debug(f"  *** Found bit.ly in this block! ***")
 
                 self.all_text_content.append({
                     'text': content,
@@ -726,6 +733,25 @@ class EmailParser:
                         if content_type == 'message/rfc822':
                             nested_msg = part.get_payload()[0] if part.get_payload() else None
                             if isinstance(nested_msg, EmailMessage):
+                                # Check the text content of this nested message
+                                for sub_part in nested_msg.walk():
+                                    if sub_part.get_content_type() in ['text/plain', 'text/html']:
+                                        try:
+                                            sub_payload = sub_part.get_payload(decode=True)
+                                            if sub_payload and isinstance(sub_payload, bytes):
+                                                sub_content = sub_payload.decode('utf-8', errors='ignore')
+                                            else:
+                                                sub_content = str(sub_payload) if sub_payload else ''
+                                            
+                                            if 'bit.ly' in sub_content.lower():
+                                                logger.debug(f"*** FOUND BIT.LY in nested message {sub_part.get_content_type()}! ***")
+                                                bit_idx = sub_content.lower().find('bit.ly')
+                                                start = max(0, bit_idx - 100)
+                                                end = min(len(sub_content), bit_idx + 100)
+                                                logger.debug(f"Context: ...{sub_content[start:end]}...")
+                                        except Exception as e:
+                                            logger.debug(f"Error checking nested content: {e}")
+                                            
                                 # Recursively walk the nested message
                                 result = {
                                     'type': 'nested_email',
