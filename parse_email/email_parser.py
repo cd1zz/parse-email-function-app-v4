@@ -53,13 +53,9 @@ class EmailParser:
     
     # Regex patterns for artifact extraction (permissive)
     URL_PATTERN = re.compile(
-        r'(?i)\b(?:'
-        r'(?:https?|ftp|ftps|sftp|file|mailto|tel|sms)://'  # Common schemes
-        r'|(?:www\d{0,3}\.)'                                # www variants
-        r'|(?:[a-z0-9.\-]+\.(?:com|org|net|edu|gov|mil|int|info|biz|name|museum|coop|aero|[a-z]{2}))'  # Domains
-        r')'
-        r'[^\s<>"\'{}|\\^`\[\]]*'                           # URL path/query (permissive)
-        , re.IGNORECASE
+        r"(?i)\b(?:(?:https?|ftp|ftps|sftp|file|mailto|tel|sms)://|(?:www\d{0,3}\.))" 
+        r"[^\s<>\"'{}|\\^`\[\]]+",
+        re.IGNORECASE,
     )
     
     IP_PATTERN = re.compile(
@@ -82,8 +78,10 @@ class EmailParser:
         , re.IGNORECASE
     )
     
-    # HTML tag removal pattern
+    # HTML sanitization patterns
     HTML_TAG_PATTERN = re.compile(r'<[^>]+>')
+    SCRIPT_STYLE_PATTERN = re.compile(r'(?is)<(?:script|style)[^>]*>.*?</(?:script|style)>')
+    COMMENT_PATTERN = re.compile(r'<!--.*?-->', re.DOTALL)
     
     def __init__(self, max_depth: int = 10, include_raw: bool = False):
         self.max_depth = max_depth
@@ -146,10 +144,14 @@ class EmailParser:
         """Remove HTML tags and decode entities"""
         if not text:
             return ""
-        
+
+        # Strip out script/style blocks and comments entirely
+        text = self.SCRIPT_STYLE_PATTERN.sub(' ', text)
+        text = self.COMMENT_PATTERN.sub(' ', text)
+
         # Remove HTML tags
         text = self.HTML_TAG_PATTERN.sub(' ', text)
-        
+
         # Decode HTML entities
         text = html.unescape(text)
         
@@ -162,15 +164,23 @@ class EmailParser:
         """Extract URLs, IPs, and domains from text content"""
         if not text or len(text.strip()) < 3:
             return {'urls': set(), 'ips': set(), 'domains': set()}
-        
-        # Clean HTML if present
-        clean_text = self._clean_html(text)
-        
-        # Extract URLs
+
         urls = set()
+
+        # Extract URLs from href/src attributes before stripping HTML
+        attr_pattern = r'(?i)(?:href|src)\s*=\s*[\'"\']([^\'"\']+)[\'"\']'
+        for attr_url in re.findall(attr_pattern, text):
+            cleaned = attr_url.strip().strip('.,;:!?')
+            if len(cleaned) > 3 and '.' in cleaned:
+                urls.add(cleaned.lower())
+
+        # Clean HTML for further text extraction
+        clean_text = self._clean_html(text)
+
+        # Extract URLs from plain text
         for match in self.URL_PATTERN.finditer(clean_text):
-            url = match.group().strip('.,;:!?')  # Remove trailing punctuation
-            if len(url) > 3 and '.' in url:  # Basic sanity check
+            url = match.group().strip('.,;:!?')
+            if len(url) > 3 and '.' in url:
                 urls.add(url.lower())
         
         # Extract IP addresses
