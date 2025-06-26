@@ -1,0 +1,23 @@
+# Email Parser Requirements
+# Core functionality works with Python standard library only
+# Optional dependencies enhance parsing capabilities
+
+# Optional: Enhanced MSG file parsing (Outlook .msg files)
+# Enables conversion of MSG files to RFC822 format for full parsing
+extract-msg>=0.41.0
+
+# Optional: TNEF parsing (winmail.dat files)
+# Enables extraction of attachments from TNEF containers
+tnefparse>=1.3.0
+
+# Optional: Improved charset detection
+# Provides better text encoding detection for email content
+chardet>=5.0.0
+
+# Optional: URL extraction enhancement (if you want more robust URL extraction)
+# Note: Current implementation uses regex, but urlextract could be added for better accuracy
+# urlextract>=1.8.0
+
+# Development/Testing dependencies (uncomment if needed)
+# pytest>=7.0.0
+# pytest-cov>=4.0.0
