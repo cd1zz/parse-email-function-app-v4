@@ -765,12 +765,25 @@ class EmailParser:
                     disposition = part.get_content_disposition() or ''
                     filename = part.get_filename()
                     charset = part.get_content_charset()
-                    
+
                     logger.debug(f"{'  ' * depth}    Processing {content_type} part ({len(payload):,} bytes)")
-                    
+
                     # Use improved charset handling
                     text, encoding = self._to_str(payload, charset)
-                    
+
+                    if content_type == 'text/plain' and len(payload) > 1000:
+                        logger.debug(f"{'  ' * depth}    *** Processing main text/plain body ***")
+                        logger.debug(f"{'  ' * depth}    Encoding: {encoding}")
+                        preview = text[:500] if encoding != 'base64' else '[base64 encoded]'
+                        logger.debug(f"{'  ' * depth}    Content preview: {preview}")
+                        if 'bit.ly' in text:
+                            logger.debug(f"{'  ' * depth}    *** FOUND bit.ly URL in this part! ***")
+                            idx = text.lower().find('bit.ly')
+                            if idx >= 0:
+                                start = max(0, idx - 100)
+                                end = min(len(text), idx + 100)
+                                logger.debug(f"{'  ' * depth}    Context: ...{text[start:end]}...")
+
                     mime_part_data = {
                         'type': 'mime_part',
                         'mime_type': content_type,
@@ -787,9 +800,13 @@ class EmailParser:
                     # Add raw content for forensics if requested
                     if self.include_raw:
                         mime_part_data['content_raw_b64'] = base64.b64encode(payload).decode()
-                    
+
+                    logger.debug(f"{'  ' * depth}    About to collect text from mime_part")
+
                     # Collect text content for artifact extraction
                     self._collect_text_content(mime_part_data)
+
+                    logger.debug(f"{'  ' * depth}    Text collection complete, total blocks so far: {len(self.all_text_content)}")
                     yield mime_part_data
                     
                 except Exception as e:
