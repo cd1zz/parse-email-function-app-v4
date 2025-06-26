@@ -263,12 +263,26 @@ class EmailParser:
         }
     
     def _collect_text_content(self, content_block: Dict[str, Any]) -> None:
-        """Collect text content from a content block for artifact extraction"""
+        """Collect text content from a content block for artifact extraction.
+
+        Nested content (e.g. attached emails) is always processed even if the
+        current block has no usable text or is base64 encoded.
+        """
         block_type = content_block.get('type', '')
         content = content_block.get('content', '')
         
-        # Skip if no content or if it's binary
-        if not content or content_block.get('encoding') == 'base64':
+        encoding = content_block.get('encoding')
+
+        # Skip adding this block's own text if it's empty or base64 encoded,
+        # but still recurse into any nested content so artifacts aren't lost
+        if not content or encoding == 'base64':
+            nested_content = content_block.get('nested_content')
+            if nested_content:
+                if isinstance(nested_content, dict):
+                    nested_blocks = nested_content.get('content', [])
+                    if isinstance(nested_blocks, list):
+                        for nested_block in nested_blocks:
+                            self._collect_text_content(nested_block)
             return
         
         # Extract text based on block type
