@@ -20,6 +20,7 @@ import html
 from pathlib import Path
 from typing import List, Dict, Any, Iterator, Optional, Set, Tuple
 import base64
+import logging
 
 try:
     import tldextract  # type: ignore
@@ -33,6 +34,8 @@ from email.message import EmailMessage
 
 # URL processing utilities
 from .url.processor import UrlProcessor
+
+logger = logging.getLogger(__name__)
 
 class EmailParser:
     """Parser using standard library email package with artifact extraction"""
@@ -529,12 +532,12 @@ class EmailParser:
         
         # Handle multipart messages
         if msg.is_multipart():
-            print(f"{'  ' * depth}Processing multipart message: {msg.get_content_type()}")
-            
+            logger.debug(f"{'  ' * depth}Processing multipart message: {msg.get_content_type()}")
+
             for i, part in enumerate(msg.iter_parts()):
                 content_type = part.get_content_type().lower()
-                
-                print(f"{'  ' * depth}  Part {i}: {content_type}")
+
+                logger.debug(f"{'  ' * depth}  Part {i}: {content_type}")
                 
                 # Decode payload first for all processing
                 payload = part.get_payload(decode=True) or b''
@@ -543,7 +546,7 @@ class EmailParser:
                 binary_kind = self._detect_binary_email(payload)
                 
                 if binary_kind == "msg":
-                    print(f"{'  ' * depth}    🔍 Detected .msg file by signature ({len(payload):,} bytes)")
+                    logger.debug(f"{'  ' * depth}    Detected .msg file by signature ({len(payload):,} bytes)")
                     result = self._parse_msg_file(payload, depth, str(id(part)))
                     result['mime_type'] = content_type
                     result['declared_type'] = content_type
@@ -555,7 +558,7 @@ class EmailParser:
                     continue
                 
                 elif binary_kind == "tnef":
-                    print(f"{'  ' * depth}    🔍 Detected TNEF file by signature ({len(payload):,} bytes)")
+                    logger.debug(f"{'  ' * depth}    Detected TNEF file by signature ({len(payload):,} bytes)")
                     try:
                         from tnefparse import TNEF
                         tnef_obj = TNEF(payload)
@@ -597,7 +600,7 @@ class EmailParser:
                         yield tnef_block
                         
                     except ImportError:
-                        print(f"{'  ' * depth}        tnefparse library not available")
+                        logger.debug(f"{'  ' * depth}        tnefparse library not available")
                         result = {
                             'type': 'binary_tnef',
                             'mime_type': content_type,
@@ -613,7 +616,7 @@ class EmailParser:
                         self._collect_text_content(result)
                         yield result
                     except Exception as e:
-                        print(f"{'  ' * depth}        Error parsing TNEF file: {e}")
+                        logger.error(f"{'  ' * depth}        Error parsing TNEF file: {e}")
                         result = {
                             'type': 'binary_tnef',
                             'mime_type': content_type,
@@ -632,7 +635,7 @@ class EmailParser:
                 
                 # 2️⃣ Skip large image parts (after binary detection)
                 if self._is_image_mime_type(content_type):
-                    print(f"{'  ' * depth}    Skipping image part ({len(payload):,} bytes)")
+                    logger.debug(f"{'  ' * depth}    Skipping image part ({len(payload):,} bytes)")
                     
                     # Still record small images or provide metadata for large ones
                     if len(payload) < 10000:  # Include small images
@@ -659,7 +662,7 @@ class EmailParser:
                 
                 # 3️⃣ Handle nested email messages (RFC822, etc.)
                 if content_type in self.EMAIL_MIME_TYPES:
-                    print(f"{'  ' * depth}    Processing nested email/message format")
+                    logger.debug(f"{'  ' * depth}    Processing nested email/message format")
                     
                     try:
                         # For message/rfc822, the payload might already be an EmailMessage
@@ -699,7 +702,7 @@ class EmailParser:
                             yield result
                         
                     except Exception as e:
-                        print(f"{'  ' * depth}    Error parsing nested email: {e}")
+                        logger.error(f"{'  ' * depth}    Error parsing nested email: {e}")
                         yield {
                             'type': 'nested_email_error',
                             'mime_type': content_type,
@@ -715,7 +718,7 @@ class EmailParser:
                     filename = part.get_filename()
                     charset = part.get_content_charset()
                     
-                    print(f"{'  ' * depth}    Processing {content_type} part ({len(payload):,} bytes)")
+                    logger.debug(f"{'  ' * depth}    Processing {content_type} part ({len(payload):,} bytes)")
                     
                     # Use improved charset handling
                     text, encoding = self._to_str(payload, charset)
@@ -742,7 +745,7 @@ class EmailParser:
                     yield mime_part_data
                     
                 except Exception as e:
-                    print(f"{'  ' * depth}    Error processing part: {e}")
+                    logger.error(f"{'  ' * depth}    Error processing part: {e}")
                     yield {
                         'type': 'mime_part_error',
                         'mime_type': content_type,
@@ -752,7 +755,7 @@ class EmailParser:
         
         # Handle single-part messages
         else:
-            print(f"{'  ' * depth}Processing single-part message: {msg.get_content_type()}")
+            logger.debug(f"{'  ' * depth}Processing single-part message: {msg.get_content_type()}")
             
             try:
                 payload = msg.get_payload(decode=True) or b''
@@ -762,7 +765,7 @@ class EmailParser:
                 binary_kind = self._detect_binary_email(payload)
                 
                 if binary_kind == "msg":
-                    print(f"{'  ' * depth}  🔍 Detected .msg file by signature ({len(payload):,} bytes)")
+                    logger.debug(f"{'  ' * depth}  Detected .msg file by signature ({len(payload):,} bytes)")
                     result = self._parse_msg_file(payload, depth, "single")
                     result['mime_type'] = content_type
                     result['declared_type'] = content_type
@@ -771,7 +774,7 @@ class EmailParser:
                     return  # Don't process as regular body
                 
                 elif binary_kind == "tnef":
-                    print(f"{'  ' * depth}  🔍 Detected TNEF file by signature ({len(payload):,} bytes)")
+                    logger.debug(f"{'  ' * depth}  Detected TNEF file by signature ({len(payload):,} bytes)")
                     try:
                         from tnefparse import TNEF
                         tnef_obj = TNEF(payload)
@@ -811,7 +814,7 @@ class EmailParser:
                         return  # Don't process as regular body
                         
                     except ImportError:
-                        print(f"{'  ' * depth}    tnefparse library not available")
+                        logger.debug(f"{'  ' * depth}    tnefparse library not available")
                         result = {
                             'type': 'binary_tnef',
                             'mime_type': content_type,
@@ -828,7 +831,7 @@ class EmailParser:
                         return
                         
                     except Exception as e:
-                        print(f"{'  ' * depth}    Error parsing TNEF file: {e}")
+                        logger.error(f"{'  ' * depth}    Error parsing TNEF file: {e}")
                         result = {
                             'type': 'binary_tnef',
                             'mime_type': content_type,
@@ -867,7 +870,7 @@ class EmailParser:
                 yield email_body_data
                 
             except Exception as e:
-                print(f"{'  ' * depth}Error processing email body: {e}")
+                logger.error(f"{'  ' * depth}Error processing email body: {e}")
                 yield {
                     'type': 'email_body_error',
                     'error': str(e),
@@ -941,7 +944,7 @@ class EmailParser:
         # Source breakdown for detailed analysis
         sources_breakdown = {}
         
-        print(f"\n🔍 Extracting artifacts from {len(self.all_text_content)} text blocks...")
+        logger.debug(f"Extracting artifacts from {len(self.all_text_content)} text blocks")
         
         for text_block in self.all_text_content:
             text = text_block['text']
