@@ -21,6 +21,11 @@ from pathlib import Path
 from typing import List, Dict, Any, Iterator, Optional, Set, Tuple
 import base64
 
+try:
+    import tldextract  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    tldextract = None
+
 # Standard library email imports
 from email import policy
 from email.parser import BytesParser
@@ -93,10 +98,31 @@ class EmailParser:
     HTML_TAG_PATTERN = re.compile(r'<[^>]+>')
     SCRIPT_STYLE_PATTERN = re.compile(r'(?is)<(?:script|style)[^>]*>.*?</(?:script|style)>')
     COMMENT_PATTERN = re.compile(r'<!--.*?-->', re.DOTALL)
+
+    def _has_valid_tld(self, domain: str) -> bool:
+        """Check if the domain has a recognized TLD"""
+        if not domain or '.' not in domain:
+            return False
+        tld = domain.rsplit('.', 1)[-1].lower()
+        if tld in self.COMMON_FILE_EXTENSIONS:
+            return False
+        if self.tld_extractor:
+            try:
+                ext = self.tld_extractor(domain)
+                return bool(ext.suffix)
+            except Exception:
+                return False
+        # Fallback: basic alphabetic TLD check
+        return bool(re.fullmatch(r'[a-z]{2,}', tld))
     
     def __init__(self, max_depth: int = 10, include_raw: bool = False):
         self.max_depth = max_depth
         self.include_raw = include_raw
+        if tldextract:
+            # Use bundled suffix list to avoid network lookups
+            self.tld_extractor = tldextract.TLDExtract(suffix_list_urls=None)
+        else:
+            self.tld_extractor = None
         self.reset()
     
     def reset(self):
@@ -186,10 +212,8 @@ class EmailParser:
             if len(cleaned) > 3 and '.' in cleaned:
                 if self.URL_SCHEME_PREFIX.match(cleaned) or '/' in cleaned or '?' in cleaned or '#' in cleaned:
                     urls.add(cleaned.lower())
-                elif self.DOMAIN_PATTERN.fullmatch(cleaned):
-                    tld = cleaned.rsplit('.', 1)[-1].lower()
-                    if tld not in self.COMMON_FILE_EXTENSIONS:
-                        domains.add(cleaned.lower())
+                elif self.DOMAIN_PATTERN.fullmatch(cleaned) and self._has_valid_tld(cleaned):
+                    domains.add(cleaned.lower())
                 else:
                     urls.add(cleaned.lower())
 
@@ -199,10 +223,8 @@ class EmailParser:
             if len(raw_val) > 3 and '.' in raw_val:
                 if self.URL_SCHEME_PREFIX.match(raw_val) or '/' in raw_val or '?' in raw_val or '#' in raw_val:
                     urls.add(raw_val.lower())
-                elif self.DOMAIN_PATTERN.fullmatch(raw_val):
-                    tld = raw_val.rsplit('.', 1)[-1].lower()
-                    if tld not in self.COMMON_FILE_EXTENSIONS:
-                        domains.add(raw_val.lower())
+                elif self.DOMAIN_PATTERN.fullmatch(raw_val) and self._has_valid_tld(raw_val):
+                    domains.add(raw_val.lower())
                 else:
                     urls.add(raw_val.lower())
 
@@ -215,10 +237,8 @@ class EmailParser:
             if len(url) > 3 and '.' in url:
                 if self.URL_SCHEME_PREFIX.match(url) or '/' in url or '?' in url or '#' in url:
                     urls.add(url.lower())
-                elif self.DOMAIN_PATTERN.fullmatch(url):
-                    tld = url.rsplit('.', 1)[-1].lower()
-                    if tld not in self.COMMON_FILE_EXTENSIONS:
-                        domains.add(url.lower())
+                elif self.DOMAIN_PATTERN.fullmatch(url) and self._has_valid_tld(url):
+                    domains.add(url.lower())
                 else:
                     urls.add(url.lower())
         
@@ -243,10 +263,9 @@ class EmailParser:
             if (len(domain) > 3 and
                 domain.count('.') >= 1 and
                 not domain.startswith('.') and
-                not domain.endswith('.')):
-                tld = domain.rsplit('.', 1)[-1].lower()
-                if tld not in self.COMMON_FILE_EXTENSIONS:
-                    domains.add(domain)
+                not domain.endswith('.') and
+                self._has_valid_tld(domain)):
+                domains.add(domain)
         
         # Remove domains that are already captured in URLs
         filtered_domains = set()
