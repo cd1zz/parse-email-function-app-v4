@@ -603,6 +603,13 @@ class EmailParser:
                     else:
                         logger.debug(f"{'  ' * depth}    Not actually multipart or no sub-parts")
 
+                # Recurse into any multipart container
+                if hasattr(part, 'is_multipart') and part.is_multipart():
+                    logger.debug(f"{'  ' * depth}    Recursing into multipart part: {content_type}")
+                    for sub_block in self._walk_message(part, depth + 1):
+                        yield sub_block
+                    continue
+
                 # Decode payload first for all processing
                 payload = part.get_payload(decode=True) or b''
 
