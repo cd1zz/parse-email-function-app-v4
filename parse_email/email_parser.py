@@ -22,10 +22,7 @@ from typing import List, Dict, Any, Iterator, Optional, Set, Tuple
 import base64
 import logging
 
-try:
-    import tldextract  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    tldextract = None
+import tldextract  # type: ignore
 
 # Standard library email imports
 from email import policy
@@ -429,16 +426,6 @@ class EmailParser:
                 except:
                     pass
                     
-        except ImportError:
-            return {
-                'type': 'binary_msg',
-                'detected_format': 'outlook_msg',
-                'size': len(payload),
-                'content': self._encode_content(payload),
-                'encoding': 'base64',
-                'note': 'Install extract_msg library to parse MSG files',
-                'depth': depth
-            }
         except Exception as e:
             return {
                 'type': 'binary_msg',
@@ -674,22 +661,6 @@ class EmailParser:
                         self._collect_text_content(tnef_block)
                         yield tnef_block
                         
-                    except ImportError:
-                        logger.debug(f"{'  ' * depth}        tnefparse library not available")
-                        result = {
-                            'type': 'binary_tnef',
-                            'mime_type': content_type,
-                            'declared_type': content_type,
-                            'detected_format': 'tnef_winmail',
-                            'size': len(payload),
-                            'filename': part.get_filename(),
-                            'content': self._encode_content(payload),
-                            'encoding': 'base64',
-                            'note': 'Install tnefparse library to extract TNEF attachments',
-                            'depth': depth
-                        }
-                        self._collect_text_content(result)
-                        yield result
                     except Exception as e:
                         logger.error(f"{'  ' * depth}        Error parsing TNEF file: {e}")
                         result = {
@@ -921,23 +892,6 @@ class EmailParser:
                         yield result
                         return  # Don't process as regular body
                         
-                    except ImportError:
-                        logger.debug(f"{'  ' * depth}    tnefparse library not available")
-                        result = {
-                            'type': 'binary_tnef',
-                            'mime_type': content_type,
-                            'declared_type': content_type,
-                            'detected_format': 'tnef_winmail',
-                            'size': len(payload),
-                            'content': self._encode_content(payload),
-                            'encoding': 'base64',
-                            'note': 'Install tnefparse library to extract TNEF attachments',
-                            'depth': depth
-                        }
-                        self._collect_text_content(result)
-                        yield result
-                        return
-                        
                     except Exception as e:
                         logger.error(f"{'  ' * depth}    Error parsing TNEF file: {e}")
                         result = {
@@ -1017,18 +971,15 @@ class EmailParser:
         except UnicodeDecodeError:    # declared charset wrong
             pass
 
-        # Try charset detection if available
-        try:
-            import chardet
-            detected = chardet.detect(data)
-            if detected and detected['encoding'] and detected['confidence'] > 0.7:
-                try:
-                    text = data.decode(detected['encoding'], errors="replace")
-                    return text, detected['encoding'].lower()
-                except (LookupError, UnicodeDecodeError):
-                    pass
-        except ImportError:
-            pass
+        # Try charset detection
+        import chardet
+        detected = chardet.detect(data)
+        if detected and detected['encoding'] and detected['confidence'] > 0.7:
+            try:
+                text = data.decode(detected['encoding'], errors="replace")
+                return text, detected['encoding'].lower()
+            except (LookupError, UnicodeDecodeError):
+                pass
 
         # last resort – keep as base64
         return base64.b64encode(data).decode("ascii"), "base64"

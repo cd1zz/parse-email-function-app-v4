@@ -4,10 +4,7 @@ import logging
 import time
 import urllib.parse
 
-try:
-    import requests  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    requests = None
+import requests  # type: ignore
 from .validator import UrlValidator
 from .decoder import UrlDecoder
 
@@ -21,10 +18,6 @@ class UrlProcessor:
     def expand_url(url: str, timeout: int = 5, max_redirects: int = 10) -> str:
         """Expand a shortened URL by following redirects."""
         if not url or not UrlValidator.is_url_shortened(url):
-            return url
-
-        if requests is None:
-            logger.debug("requests library not available; skipping URL expansion")
             return url
 
         logger.debug(f"Expanding shortened URL: {url}")
@@ -45,7 +38,7 @@ class UrlProcessor:
             return expanded_url
         except Exception as e:  # pragma: no cover - network errors
             logger.warning(f"Error expanding URL {url}: {str(e)}")
-            if requests is not None and isinstance(e, requests.exceptions.RequestException):
+            if isinstance(e, requests.exceptions.RequestException):
                 if hasattr(e, 'response') and e.response is not None:
                     return e.response.url
                 if hasattr(e, 'request'):
