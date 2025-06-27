@@ -220,9 +220,13 @@ class EmailParser:
         # Clean up whitespace
         text = ' '.join(text.split())
 
-        # Remove zero-width and other non-printable characters
+        # Normalize so accents are combined and strip invisible characters
         import unicodedata
-        text = ''.join(ch for ch in text if unicodedata.category(ch)[0] != 'C')
+        text = unicodedata.normalize('NFC', text)
+        text = ''.join(
+            ch for ch in text
+            if unicodedata.category(ch)[0] not in ('C', 'M')
+        )
 
         return text
     
