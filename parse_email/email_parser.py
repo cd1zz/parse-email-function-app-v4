@@ -731,14 +731,12 @@ class EmailParser:
                         'depth': depth
                     }
 
-                    if self.include_images and (not is_large or self.include_large_images):
-                        block['content'] = self._encode_content(payload)
-                        block['encoding'] = self._determine_encoding(payload)
-                    else:
-                        note = 'Image extraction disabled'
-                        if is_large and not self.include_large_images and self.include_images:
-                            note = 'Content skipped due to size'
-                        block['note'] = note
+                    # Binary image data should never be stored in JSON output.
+                    note = 'Image extraction disabled'
+                    if self.include_images and is_large and not self.include_large_images:
+                        note = 'Content skipped due to size'
+                    block['note'] = note
+                    block['encoding'] = 'base64'
 
                     yield block
                     continue
@@ -855,16 +853,14 @@ class EmailParser:
                         'depth': depth
                     }
 
-                    # Store extracted text for artifact collection
-                    mime_part_data['content'] = text
+                    # Store extracted text only when it's actually text.
+                    if encoding != 'base64':
+                        mime_part_data['content'] = text
 
 
                     if pdf_text:
                         mime_part_data['pdf_text'] = pdf_text
                     
-                    # Add raw content for forensics if requested
-                    if self.include_raw:
-                        mime_part_data['content_raw_b64'] = base64.b64encode(payload).decode()
 
                     logger.debug(f"{'  ' * depth}    About to collect text from mime_part")
 
@@ -967,14 +963,13 @@ class EmailParser:
                     'mime_type': content_type,
                     'charset': charset,
                     'size': len(payload),
-                    'content': text,
                     'encoding': encoding,
                     'depth': depth
                 }
+
+                if encoding != 'base64':
+                    email_body_data['content'] = text
                 
-                # Add raw content for forensics if requested
-                if self.include_raw:
-                    email_body_data['content_raw_b64'] = base64.b64encode(payload).decode()
                 
                 # Collect text content for artifact extraction
                 self._collect_text_content(email_body_data)
