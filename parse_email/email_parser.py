@@ -216,10 +216,14 @@ class EmailParser:
 
         # Decode HTML entities
         text = html.unescape(text)
-        
+
         # Clean up whitespace
         text = ' '.join(text.split())
-        
+
+        # Remove zero-width and other non-printable characters
+        import unicodedata
+        text = ''.join(ch for ch in text if unicodedata.category(ch)[0] != 'C')
+
         return text
     
     def _extract_artifacts_from_text(self, text: str) -> Dict[str, Set[str]]:
