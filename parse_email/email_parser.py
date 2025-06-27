@@ -857,6 +857,8 @@ class EmailParser:
                     # Store extracted text only when it's actually text.
                     if encoding != 'base64':
                         mime_part_data['content'] = text
+                        if content_type == 'text/html':
+                            mime_part_data['text_only'] = self._clean_html(text)
 
 
                     if pdf_text:
@@ -970,6 +972,8 @@ class EmailParser:
 
                 if encoding != 'base64':
                     email_body_data['content'] = text
+                    if content_type == 'text/html':
+                        email_body_data['text_only'] = self._clean_html(text)
                 
                 
                 # Collect text content for artifact extraction
