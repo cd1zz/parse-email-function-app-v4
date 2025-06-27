@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Iterator, Optional, Set, Tuple
 import base64
 import logging
+import string
 
 import tldextract  # type: ignore
 
@@ -997,7 +998,17 @@ class EmailParser:
         if buf.startswith(self.TNEF_SIGNATURE):
             return "tnef"
         return None
-    
+
+    def _is_probably_binary(self, buf: bytes, threshold: float = 0.1) -> bool:
+        """Heuristic check to determine if data is binary."""
+        if not buf:
+            return False
+        if b"\x00" in buf:
+            return True
+        printable = set(bytes(string.printable, "ascii"))
+        non_printable = sum(b not in printable for b in buf)
+        return non_printable / len(buf) > threshold
+
     def _to_str(self, data: bytes, charset: str | None) -> tuple[str, str]:
         """
         Return (text, encoding_name) – text is always a str.
@@ -1006,9 +1017,16 @@ class EmailParser:
         if not data:
             return "", "empty"
 
+        # If content appears binary, immediately return base64
+        if self._is_probably_binary(data):
+            return base64.b64encode(data).decode("ascii"), "base64"
+
         try:
             # prefer part's charset, else utf-8
             text = data.decode(charset or "utf-8", errors="replace")
+            # If decoded text still looks binary, fall back to base64
+            if self._is_probably_binary(text.encode("utf-8", errors="ignore")):
+                return base64.b64encode(data).decode("ascii"), "base64"
             return text, (charset or "utf-8").lower()
         except LookupError:           # unknown charset label
             pass
