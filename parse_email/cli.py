@@ -11,8 +11,10 @@ def main():
     parser.add_argument('-o', '--output', help='Output JSON file')
     parser.add_argument('--compact', action='store_true', help='Compact JSON output')
     parser.add_argument('--max-depth', type=int, default=10, help='Maximum recursion depth (default: 10)')
-    parser.add_argument('--include-raw', action='store_true', 
+    parser.add_argument('--include-raw', action='store_true',
                        help='Include raw base64 content for forensic analysis')
+    parser.add_argument('--include-images', action='store_true',
+                       help='Extract image content (otherwise only metadata is kept)')
     parser.add_argument('--include-large-images', action='store_true',
                        help='Include large images in output (may create very large files)')
     parser.add_argument('--log-file', help='Write debug log to specified file')
@@ -39,7 +41,12 @@ def main():
     
     # Parse all files
     results = []
-    email_parser = EmailParser(max_depth=args.max_depth, include_raw=args.include_raw)
+    email_parser = EmailParser(
+        max_depth=args.max_depth,
+        include_raw=args.include_raw,
+        include_images=args.include_images,
+        include_large_images=args.include_large_images
+    )
     
     for file_path in args.files:
         try:

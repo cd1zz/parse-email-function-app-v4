@@ -113,10 +113,33 @@ class EmailParser:
         # Fallback: basic alphabetic TLD check
         return bool(re.fullmatch(r'[a-z]{2,}', tld))
     
-    def __init__(self, max_depth: int = 10, include_raw: bool = False, parent_text_content: list = None):
+    def __init__(self, max_depth: int = 10, include_raw: bool = False,
+                 include_images: bool = False,
+                 include_large_images: bool = False,
+                 parent_text_content: list = None):
+        """Initialize parser configuration.
+
+        Parameters
+        ----------
+        max_depth: int
+            Maximum recursion depth when parsing nested content.
+        include_raw: bool
+            Whether to include raw base64 content for forensic analysis.
+        include_images: bool
+            When ``True`` image parts will have their bytes extracted.
+            If ``False`` only metadata is recorded.
+        include_large_images: bool
+            Include image content even when it exceeds the default size
+            threshold.
+        parent_text_content: list | None
+            Shared list used when recursively parsing nested messages.
+        """
+
         self.max_depth = max_depth
         self.include_raw = include_raw
-        self.parent_text_content = parent_text_content  # Add this
+        self.include_images = include_images
+        self.include_large_images = include_large_images
+        self.parent_text_content = parent_text_content
         if tldextract:
             self.tld_extractor = tldextract.TLDExtract(suffix_list_urls=None)
         else:
@@ -393,10 +416,12 @@ class EmailParser:
                 
                 # Parse the converted content recursively
                 nested_parser = EmailParser(
-                    max_depth=self.max_depth, 
+                    max_depth=self.max_depth,
                     include_raw=self.include_raw,
-                    parent_text_content=self.all_text_content  # Add this
-                )                
+                    include_images=self.include_images,
+                    include_large_images=self.include_large_images,
+                    parent_text_content=self.all_text_content
+                )
                 nested_result = nested_parser.parse(
                     rfc822_content, 
                     f"nested_msg_{part_id}", 
@@ -679,31 +704,30 @@ class EmailParser:
                         yield result
                     continue
                 
-                # 2️⃣ Skip large image parts (after binary detection)
+                # 2️⃣ Handle image parts (after binary detection)
                 if self._is_image_mime_type(content_type):
-                    logger.debug(f"{'  ' * depth}    Skipping image part ({len(payload):,} bytes)")
-                    
-                    # Still record small images or provide metadata for large ones
-                    if len(payload) < 10000:  # Include small images
-                        yield {
-                            'type': 'image_part',
-                            'mime_type': content_type,
-                            'filename': part.get_filename(),
-                            'size': len(payload),
-                            'content': self._encode_content(payload),
-                            'encoding': self._determine_encoding(payload),
-                            'depth': depth
-                        }
+                    logger.debug(f"{'  ' * depth}    Processing image part ({len(payload):,} bytes)")
+
+                    is_large = len(payload) >= 10000
+                    block_type = 'large_image_part' if is_large else 'image_part'
+                    block = {
+                        'type': block_type,
+                        'mime_type': content_type,
+                        'filename': part.get_filename(),
+                        'size': len(payload),
+                        'depth': depth
+                    }
+
+                    if self.include_images and (not is_large or self.include_large_images):
+                        block['content'] = self._encode_content(payload)
+                        block['encoding'] = self._determine_encoding(payload)
                     else:
-                        # Just metadata for large images
-                        yield {
-                            'type': 'large_image_part',
-                            'mime_type': content_type,
-                            'filename': part.get_filename(),
-                            'size': len(payload),
-                            'depth': depth,
-                            'note': 'Content skipped due to size'
-                        }
+                        note = 'Image extraction disabled'
+                        if is_large and not self.include_large_images and self.include_images:
+                            note = 'Content skipped due to size'
+                        block['note'] = note
+
+                    yield block
                     continue
                 
                 # 3️⃣ Handle nested email messages (RFC822, etc.)
@@ -722,6 +746,8 @@ class EmailParser:
                                 nested_parser = EmailParser(
                                     max_depth=self.max_depth,
                                     include_raw=self.include_raw,
+                                    include_images=self.include_images,
+                                    include_large_images=self.include_large_images,
                                     parent_text_content=self.all_text_content  # Share the text collection!
                                 )
 
@@ -745,8 +771,10 @@ class EmailParser:
                         # Fallback: parse raw bytes as email
                         if payload:
                             nested_parser = EmailParser(
-                                max_depth=self.max_depth, 
+                                max_depth=self.max_depth,
                                 include_raw=self.include_raw,
+                                include_images=self.include_images,
+                                include_large_images=self.include_large_images,
                                 parent_text_content=self.all_text_content  # Pass the parent's list
                             )
                             nested_result = nested_parser.parse(
