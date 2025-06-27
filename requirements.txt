@@ -4,3 +4,4 @@ tnefparse>=1.3.0
 tldextract>=3.4.0
 chardet>=5.0.0
 requests>=2.0.0
+pdfminer.six>=20221105
