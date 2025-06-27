@@ -719,7 +719,21 @@ class EmailParser:
                 
                 # 2️⃣ Handle image parts (after binary detection)
                 if self._is_image_mime_type(content_type):
+                    logger.debug(f"{'  ' * depth}    Processing image part ({len(payload):,} bytes)")
 
+                    is_large = len(payload) >= 10000
+                    block_type = 'large_image_part' if is_large else 'image_part'
+                    block = {
+                        'type': block_type,
+                        'mime_type': content_type,
+                        'filename': part.get_filename(),
+                        'size': len(payload),
+                        'depth': depth
+                    }
+
+                    if self.include_images and (not is_large or self.include_large_images):
+                        block['content'] = self._encode_content(payload)
+                        block['encoding'] = self._determine_encoding(payload)
                     else:
                         note = 'Image extraction disabled'
                         if is_large and not self.include_large_images and self.include_images:
