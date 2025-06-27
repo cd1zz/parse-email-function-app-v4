@@ -202,8 +202,28 @@ class EmailParser:
                 'size': len(raw_content)
             }
     
+    def _normalize_whitespace(self, text: str) -> str:
+        """Collapse excessive whitespace and blank lines."""
+        if not text:
+            return ""
+
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        lines = [re.sub(r'[ \t]+', ' ', line.strip()) for line in text.split('\n')]
+
+        cleaned_lines: list[str] = []
+        blank = False
+        for line in lines:
+            if line:
+                cleaned_lines.append(line)
+                blank = False
+            else:
+                if not blank:
+                    cleaned_lines.append('')
+                    blank = True
+        return '\n'.join(cleaned_lines).strip()
+
     def _clean_html(self, text: str) -> str:
-        """Remove HTML tags and decode entities"""
+        """Remove HTML tags and decode entities."""
         if not text:
             return ""
 
@@ -217,15 +237,15 @@ class EmailParser:
         # Decode HTML entities
         text = html.unescape(text)
 
-        # Clean up whitespace
-        text = ' '.join(text.split())
+        # Clean up whitespace but keep single line breaks
+        text = self._normalize_whitespace(text)
 
         # Normalize so accents are combined and strip invisible characters
         import unicodedata
         text = unicodedata.normalize('NFC', text)
         text = ''.join(
             ch for ch in text
-            if unicodedata.category(ch)[0] not in ('C', 'M')
+            if unicodedata.category(ch)[0] not in ('C', 'M') or ch == '\n'
         )
 
         return text
