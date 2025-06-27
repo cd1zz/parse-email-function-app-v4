@@ -855,6 +855,9 @@ class EmailParser:
                         'depth': depth
                     }
 
+                    # Store extracted text for artifact collection
+                    mime_part_data['content'] = text
+
 
                     if pdf_text:
                         mime_part_data['pdf_text'] = pdf_text
