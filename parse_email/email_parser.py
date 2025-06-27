@@ -468,15 +468,14 @@ class EmailParser:
                     pass
                     
         except Exception as e:
-            return {
-                'type': 'binary_msg',
-                'detected_format': 'outlook_msg',
-                'size': len(payload),
-                'error': str(e),
-                'content': self._encode_content(payload),
-                'encoding': 'base64',
-                'depth': depth
-            }
+                return {
+                    'type': 'binary_msg',
+                    'detected_format': 'outlook_msg',
+                    'size': len(payload),
+                    'error': str(e),
+                    'encoding': 'base64',
+                    'depth': depth
+                }
 
     def _msg_to_rfc822(self, msg_obj) -> bytes:
         """Convert extract_msg Message object to RFC822 format."""
@@ -679,7 +678,6 @@ class EmailParser:
                             
                             # Include small attachments, skip large ones
                             if len(attachment.data) < 100000:  # 100KB limit
-                                att_info['content'] = self._encode_content(attachment.data)
                                 att_info['encoding'] = self._determine_encoding(attachment.data)
                             else:
                                 att_info['note'] = 'Content skipped due to size'
@@ -712,7 +710,6 @@ class EmailParser:
                             'size': len(payload),
                             'filename': part.get_filename(),
                             'error': str(e),
-                            'content': self._encode_content(payload),
                             'encoding': 'base64',
                             'depth': depth
                         }
@@ -722,21 +719,7 @@ class EmailParser:
                 
                 # 2️⃣ Handle image parts (after binary detection)
                 if self._is_image_mime_type(content_type):
-                    logger.debug(f"{'  ' * depth}    Processing image part ({len(payload):,} bytes)")
 
-                    is_large = len(payload) >= 10000
-                    block_type = 'large_image_part' if is_large else 'image_part'
-                    block = {
-                        'type': block_type,
-                        'mime_type': content_type,
-                        'filename': part.get_filename(),
-                        'size': len(payload),
-                        'depth': depth
-                    }
-
-                    if self.include_images and (not is_large or self.include_large_images):
-                        block['content'] = self._encode_content(payload)
-                        block['encoding'] = self._determine_encoding(payload)
                     else:
                         note = 'Image extraction disabled'
                         if is_large and not self.include_large_images and self.include_images:
@@ -853,11 +836,11 @@ class EmailParser:
                         'filename': filename,
                         'charset': charset,
                         'size': len(payload),
-                        'content': text,
                         'encoding': encoding,
                         'headers': dict(part.items()),
                         'depth': depth
                     }
+
 
                     if pdf_text:
                         mime_part_data['pdf_text'] = pdf_text
@@ -922,7 +905,6 @@ class EmailParser:
                             
                             # Include small attachments, skip large ones
                             if len(attachment.data) < 100000:  # 100KB limit
-                                att_info['content'] = self._encode_content(attachment.data)
                                 att_info['encoding'] = self._determine_encoding(attachment.data)
                             else:
                                 att_info['note'] = 'Content skipped due to size'
@@ -952,7 +934,6 @@ class EmailParser:
                             'detected_format': 'tnef_winmail',
                             'size': len(payload),
                             'error': str(e),
-                            'content': self._encode_content(payload),
                             'encoding': 'base64',
                             'depth': depth
                         }
