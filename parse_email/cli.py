@@ -2,7 +2,8 @@
 import json
 import argparse
 import logging
-from .email_parser import EmailParser
+import importlib.util
+import sys
 
 def main():
     parser = argparse.ArgumentParser(description='Email Content Parser (Standard Library + Binary Support + Artifact Extraction)')
@@ -25,37 +26,16 @@ def main():
         filename=args.log_file,
         format='%(asctime)s %(levelname)s %(name)s: %(message)s'
     )
-    
-    # Check for optional dependencies
-    print("🔍 Checking optional dependencies:")
-    try:
-        import extract_msg
-        print("  ✅ extract_msg: Available (can parse .msg files)")
-    except ImportError:
-        print("  ❌ extract_msg: Not available (install with: pip install extract_msg)")
-    
-    try:
-        from tnefparse import TNEF
-        print("  ✅ tnefparse: Available (can parse TNEF/winmail.dat files)")
-    except ImportError:
-        print("  ❌ tnefparse: Not available (install with: pip install tnefparse)")
-    
-    try:
-        import chardet
-        print("  ✅ chardet: Available (improves charset detection)")
-    except ImportError:
-        print("  ❌ chardet: Not available (install with: pip install chardet)")
-    
-    print("\n🎯 Features:")
-    print("  • Detects .msg/.tnef files by signature (not MIME type)")
-    print("  • Works even when attachments are mislabeled as 'application/octet-stream'")
-    print("  • Gracefully falls back to raw binary if libraries unavailable")
-    print("  • Improved charset handling with fallback detection")
-    print("  • Optional raw content storage for forensic analysis")
-    print("  • 🆕 Extracts URLs, IP addresses, and domains from all text content")
-    print("  • 🆕 Handles HTML content and decodes entities")
-    print("  • 🆕 Provides detailed artifact statistics and source breakdown")
-    print()
+
+    # Ensure required dependencies are available
+    required = ['extract_msg', 'tnefparse', 'chardet', 'tldextract', 'requests']
+    missing = [m for m in required if importlib.util.find_spec(m) is None]
+    if missing:
+        print('Missing required dependencies: ' + ', '.join(missing), file=sys.stderr)
+        print('Please install the missing packages and try again.', file=sys.stderr)
+        sys.exit(1)
+
+    from .email_parser import EmailParser
     
     # Parse all files
     results = []
@@ -171,7 +151,6 @@ def main():
         
         if args.output is None:
             print(f"\n💡 Tip: Use -o filename.json to save full results to a file")
-            print(f"💡 To parse binary formats, install: pip install extract_msg tnefparse")
 
 
 if __name__ == "__main__":
