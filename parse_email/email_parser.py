@@ -31,6 +31,7 @@ from email.message import EmailMessage
 
 # URL processing utilities
 from .url.processor import UrlProcessor
+from .pdf_utils import extract_text_from_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -307,9 +308,24 @@ class EmailParser:
             end = min(len(content), bit_idx + 50)
             logger.debug(f"Context: ...{content[start:end]}...")
 
+        pdf_added = False
+        if (
+            block_type == 'mime_part'
+            and content_block.get('mime_type') == 'application/pdf'
+        ):
+            pdf_text = content_block.get('pdf_text')
+            if isinstance(pdf_text, str) and pdf_text.strip():
+                logger.debug("  Collecting text from PDF attachment")
+                self.all_text_content.append({
+                    'text': pdf_text,
+                    'source': f"pdf_{content_block.get('filename', 'attachment')}",
+                    'block_type': 'pdf_attachment',
+                })
+                pdf_added = True
+
         # Skip adding this block's own text if it's empty or base64 encoded,
         # but still recurse into any nested content so artifacts aren't lost
-        if not content or encoding == 'base64':
+        if (not content or encoding == 'base64') and not pdf_added:
             logger.debug(
                 f"  Skipping text collection: empty={not content}, base64={encoding == 'base64'}"
             )
@@ -427,15 +443,14 @@ class EmailParser:
                     pass
                     
         except Exception as e:
-            return {
-                'type': 'binary_msg',
-                'detected_format': 'outlook_msg',
-                'size': len(payload),
-                'error': str(e),
-                'content': self._encode_content(payload),
-                'encoding': 'base64',
-                'depth': depth
-            }
+                return {
+                    'type': 'binary_msg',
+                    'detected_format': 'outlook_msg',
+                    'size': len(payload),
+                    'error': str(e),
+                    'encoding': 'base64',
+                    'depth': depth
+                }
 
     def _msg_to_rfc822(self, msg_obj) -> bytes:
         """Convert extract_msg Message object to RFC822 format."""
@@ -638,7 +653,6 @@ class EmailParser:
                             
                             # Include small attachments, skip large ones
                             if len(attachment.data) < 100000:  # 100KB limit
-                                att_info['content'] = self._encode_content(attachment.data)
                                 att_info['encoding'] = self._determine_encoding(attachment.data)
                             else:
                                 att_info['note'] = 'Content skipped due to size'
@@ -671,7 +685,6 @@ class EmailParser:
                             'size': len(payload),
                             'filename': part.get_filename(),
                             'error': str(e),
-                            'content': self._encode_content(payload),
                             'encoding': 'base64',
                             'depth': depth
                         }
@@ -690,7 +703,6 @@ class EmailParser:
                             'mime_type': content_type,
                             'filename': part.get_filename(),
                             'size': len(payload),
-                            'content': self._encode_content(payload),
                             'encoding': self._determine_encoding(payload),
                             'depth': depth
                         }
@@ -785,6 +797,10 @@ class EmailParser:
                     # Use improved charset handling
                     text, encoding = self._to_str(payload, charset)
 
+                    pdf_text = None
+                    if content_type.lower() == 'application/pdf':
+                        pdf_text = extract_text_from_pdf(payload)
+
                     if content_type == 'text/plain' and len(payload) > 1000:
                         logger.debug(f"{'  ' * depth}    *** Processing main text/plain body ***")
                         logger.debug(f"{'  ' * depth}    Encoding: {encoding}")
@@ -805,11 +821,16 @@ class EmailParser:
                         'filename': filename,
                         'charset': charset,
                         'size': len(payload),
-                        'content': text,
                         'encoding': encoding,
                         'headers': dict(part.items()),
                         'depth': depth
                     }
+
+                    if encoding != 'base64':
+                        mime_part_data['content'] = text
+
+                    if pdf_text:
+                        mime_part_data['pdf_text'] = pdf_text
                     
                     # Add raw content for forensics if requested
                     if self.include_raw:
@@ -871,7 +892,6 @@ class EmailParser:
                             
                             # Include small attachments, skip large ones
                             if len(attachment.data) < 100000:  # 100KB limit
-                                att_info['content'] = self._encode_content(attachment.data)
                                 att_info['encoding'] = self._determine_encoding(attachment.data)
                             else:
                                 att_info['note'] = 'Content skipped due to size'
@@ -901,7 +921,6 @@ class EmailParser:
                             'detected_format': 'tnef_winmail',
                             'size': len(payload),
                             'error': str(e),
-                            'content': self._encode_content(payload),
                             'encoding': 'base64',
                             'depth': depth
                         }
