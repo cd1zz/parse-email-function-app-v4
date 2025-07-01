@@ -18,5 +18,5 @@ __pycache__/
 *.der
 *.crt
 *.pem
-
+*.log
 .python_packages/
