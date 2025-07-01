@@ -18,7 +18,7 @@ import os
 import re
 import ipaddress
 import html
-from .html_cleaner import PhishingEmailHtmlCleaner
+from .html_cleaner import PhishingEmailHtmlCleaner as Cleaner
 from pathlib import Path
 from typing import List, Dict, Any, Iterator, Optional, Set, Tuple
 import base64
@@ -255,7 +255,9 @@ class EmailParser:
         if urls:
             unique_urls = list(dict.fromkeys(urls))  # Preserve order, remove duplicates
             text += '\n\nExtracted URLs:\n' + '\n'.join(unique_urls)
-        
+
+        text = Cleaner._remove_invisible_chars_aggressive(text)
+        text = Cleaner._normalize_whitespace(text)
         return text
 
     def _clean_html(self, text: str) -> str:
@@ -264,7 +266,7 @@ class EmailParser:
             return ""
             
         try:
-            cleaned = PhishingEmailHtmlCleaner.clean_html(text, aggressive_cleaning=True)
+            cleaned = Cleaner.clean_html(text, aggressive_cleaning=True)
             
             # Validation: ensure no HTML tags remain
             if self._contains_html_tags(cleaned):
@@ -460,7 +462,8 @@ class EmailParser:
             source_suffix = "html_cleaned"
         else:
             logger.debug(f"Processing as plain text content")
-            text_to_add = content
+            text_to_add = Cleaner._remove_invisible_chars_aggressive(content)
+            text_to_add = Cleaner._normalize_whitespace(text_to_add)
             source_suffix = mime_type or 'plain'
 
         if text_to_add.strip():
