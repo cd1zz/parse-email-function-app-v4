@@ -6,6 +6,7 @@ import html2text
 import html
 import re
 import unicodedata
+from bs4 import BeautifulSoup
 
 
 class PhishingEmailHtmlCleaner:
@@ -75,11 +76,29 @@ class PhishingEmailHtmlCleaner:
 
     PRESERVE_CHARS = {'\t', '\n', '\r'}
 
+    HIDDEN_STYLE_PATTERN = re.compile(
+        r"display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|font-size\s*:\s*0|height\s*:\s*0|width\s*:\s*0",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _strip_hidden_elements(cls, html_str: str) -> str:
+        """Remove elements that are visually hidden."""
+        soup = BeautifulSoup(html_str, "html.parser")
+        for element in soup.find_all(style=cls.HIDDEN_STYLE_PATTERN):
+            element.decompose()
+        for element in soup.find_all(attrs={"hidden": True}):
+            element.decompose()
+        return str(soup)
+
     @classmethod
     def clean_html(cls, text: str, aggressive_cleaning: bool = True) -> str:
         """Convert HTML to plain text using html2text with URL preservation."""
         if not text:
             return ""
+
+        # Remove hidden elements before converting
+        stripped = cls._strip_hidden_elements(text)
 
         # html2text conversion
         converter = html2text.HTML2Text()
@@ -87,7 +106,7 @@ class PhishingEmailHtmlCleaner:
         converter.protect_links = True
         converter.inline_links = True
         converter.ignore_images = True
-        converted = converter.handle(text)
+        converted = converter.handle(stripped)
 
         # html.unescape to handle entities that html2text may leave
         converted = html.unescape(converted)
@@ -100,6 +119,12 @@ class PhishingEmailHtmlCleaner:
         converted = cls._replace_problematic_unicode_chars(converted)
         converted = cls._normalize_whitespace(converted)
         converted = unicodedata.normalize("NFKC", converted)
+
+        # Final validation to ensure no invisible characters remain
+        if aggressive_cleaning:
+            converted = cls._remove_invisible_chars_aggressive(converted)
+        else:
+            converted = cls._remove_invisible_chars_conservative(converted)
 
         # Extract URLs from markdown links and append as separate lines
         urls = re.findall(r'\[[^\]]+\]\(([^)\s]+)\)', converted)
@@ -123,7 +148,7 @@ class PhishingEmailHtmlCleaner:
             category = unicodedata.category(ch)
             if category.startswith(('Cf', 'Cc', 'Cs', 'Co')):
                 continue
-            if category.startswith('M') and not unicodedata.combining(ch):
+            if category.startswith('M') and unicodedata.combining(ch):
                 continue
             cleaned.append(ch)
         return ''.join(cleaned)
