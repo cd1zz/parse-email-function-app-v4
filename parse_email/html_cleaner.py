@@ -124,16 +124,22 @@ class PhishingEmailHtmlCleaner:
         
         converted = cls._normalize_whitespace(converted)
 
+        # Convert markdown links to plain text "text URL" and strip angle brackets
+        converted = re.sub(r'\[([^\]]+)\]\(<(https?://[^)>]+)>\)', r'\1 \2', converted)
+        converted = re.sub(r'\[([^\]]+)\]\((https?://[^)]+)\)', r'\1 \2', converted)
+        converted = re.sub(r'<(https?://[^>]+)>', r'\1', converted)
+
         # Final validation to ensure no invisible characters remain
         if aggressive_cleaning:
             converted = cls._remove_invisible_chars_aggressive(converted)
         else:
             converted = cls._remove_invisible_chars_conservative(converted)
 
-        # Extract URLs from markdown links and append as separate lines
-        urls = re.findall(r'\[[^\]]+\]\(([^)\s]+)\)', converted)
-        if urls:
-            converted = converted.strip() + "\n" + "\n".join(urls)
+        # html2text in inline_links mode already preserves URLs inline. In
+        # previous versions we appended all extracted URLs as separate lines,
+        # which led to duplication when the parser also returns a dedicated URL
+        # list. The caller now relies on the artifact extraction pipeline
+        # instead, so no additional URL lines are added here.
 
         return converted.strip()
 

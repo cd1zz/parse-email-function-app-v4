@@ -48,14 +48,18 @@ Content-Type: text/html; charset=utf-8
     assert 'alert(' not in plain_text, "Script content found in plain_text"
     assert '.hidden' not in plain_text, "Style content found in plain_text"
     print("✓ No script/style content in plain_text")
-    
-    # Test 3: URLs preserved in both plain_text and artifacts
+
+    # Test 3: URLs should not be appended to plain_text
+    assert 'Extracted URLs:' not in plain_text
+    print("✓ No appended URL section in plain_text")
+
+    # Test 4: URLs preserved in both plain_text and artifacts
     urls_in_artifacts = [url['original_url'] for url in artifacts.get('urls', [])]
     assert 'bit.ly/fake-bank' in str(urls_in_artifacts) or 'bit.ly/fake-bank' in plain_text
     assert 'fake-bank.evil.com' in str(urls_in_artifacts) or 'fake-bank.evil.com' in plain_text
     print("✓ URLs preserved in artifacts and/or plain_text")
-    
-    # Test 4: Core message content preserved
+
+    # Test 5: Core message content preserved
     assert 'suspended' in plain_text.lower()
     assert 'verify' in plain_text.lower()
     print("✓ Core message content preserved")
