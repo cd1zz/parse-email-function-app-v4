@@ -31,12 +31,22 @@ def main():
         format='%(asctime)s %(levelname)s %(name)s: %(message)s'
     )
 
-    # Ensure required dependencies are available
-    required = ['extract_msg', 'tnefparse', 'chardet', 'tldextract', 'requests']
+    # Updated required dependencies - ADD html2text
+    required = [
+        'extract_msg', 
+        'tnefparse', 
+        'chardet', 
+        'tldextract', 
+        'requests',
+        'html2text'  # NEW DEPENDENCY for robust HTML cleaning
+    ]
     missing = [m for m in required if importlib.util.find_spec(m) is None]
     if missing:
         print('Missing required dependencies: ' + ', '.join(missing), file=sys.stderr)
         print('Please install the missing packages and try again.', file=sys.stderr)
+        print('', file=sys.stderr)
+        print('Installation command:', file=sys.stderr)
+        print(f'pip install {" ".join(missing)}', file=sys.stderr)
         sys.exit(1)
 
     from .email_parser import EmailParser
@@ -108,6 +118,18 @@ def main():
                     print(f"  📄 MIME types:")
                     for mime_type, count in sorted(stats['mime_type_counts'].items()):
                         print(f"    - {mime_type}: {count}")
+                        
+                # NEW: Show plain_text validation
+                plain_text = result.get('plain_text', '')
+                if plain_text:
+                    import re
+                    html_tags = re.findall(r'<[^>]+>', plain_text)
+                    if html_tags:
+                        print(f"  ⚠️  HTML tags found in plain_text: {len(html_tags)} tags")
+                        print(f"    Sample tags: {html_tags[:3]}")
+                    else:
+                        print(f"  ✅ Plain text clean (no HTML tags detected)")
+                        
             else:
                 print(f"✗ Error: {result['error']}")
                 logging.error(f"Error parsing {file_path}: {result['error']}")
@@ -125,9 +147,10 @@ def main():
         'results': results,
         'total_files': len(results),
         'successful': len([r for r in results if 'error' not in r]),
-        'parsing_method': 'standard_library_email_package_with_binary_support_and_artifact_extraction',
+        'parsing_method': 'standard_library_email_package_with_binary_support_and_artifact_extraction_html2text',
         'supported_binary_formats': ['outlook_msg', 'tnef_winmail'],
-        'artifact_types': ['urls', 'ip_addresses', 'domains']
+        'artifact_types': ['urls', 'ip_addresses', 'domains'],
+        'html_cleaning': 'html2text_with_fallback'
     }
     
     # Output results
