@@ -24,3 +24,4 @@ def test_content_preserved_with_forensics():
     result = parser.parse(SIMPLE_EMAIL, forensics_mode=True)
     assert isinstance(result["content"], list)
     assert "World" in result["plain_text"]
+
