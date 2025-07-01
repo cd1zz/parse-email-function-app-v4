@@ -61,13 +61,20 @@ def main():
             if 'error' not in result:
                 stats = result['statistics']
                 artifacts = result['extracted_artifacts']
-                
+
+                # When forensics_mode is False, result['content'] is replaced
+                # with a summary string. Guard against that here.
+                content_blocks = result['content'] if isinstance(result['content'], list) else []
+                attachment_count = sum(
+                    1 for b in content_blocks if b.get('disposition') == 'attachment'
+                )
+
                 print(f"\n✓ Successfully parsed: {file_path}")
                 print(f"  📊 Content blocks: {stats['content_blocks']}")
                 print(f"  📁 MIME types found: {len(stats['mime_type_counts'])}")
                 print(f"  🔄 Max depth: {stats['max_depth']}")
                 print(f"  📧 Nested emails: {stats['type_counts'].get('nested_email', 0)}")
-                print(f"  📎 Attachments: {sum(1 for b in result['content'] if b.get('disposition') == 'attachment')}")
+                print(f"  📎 Attachments: {attachment_count}")
                 
                 # Show artifact extraction results
                 print(f"\n🔍 Extracted Artifacts:")
@@ -147,7 +154,8 @@ def main():
                 
                 # Show binary format summary
                 binary_found = []
-                for block in result['content']:
+                content_blocks = result['content'] if isinstance(result['content'], list) else []
+                for block in content_blocks:
                     if block['type'] in ['nested_msg', 'binary_msg']:
                         binary_found.append('MSG')
                     elif block['type'] in ['tnef_container', 'binary_tnef']:
