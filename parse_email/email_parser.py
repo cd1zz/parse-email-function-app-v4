@@ -16,7 +16,7 @@ import tempfile
 import os
 import re
 import ipaddress
-from .html_cleaner import EnhancedHtmlCleaner
+from .html_cleaner import PhishingEmailHtmlCleaner
 from pathlib import Path
 from typing import List, Dict, Any, Iterator, Optional, Set, Tuple
 import base64
@@ -229,8 +229,8 @@ class EmailParser:
         return '\n'.join(cleaned_lines).strip()
 
     def _clean_html(self, text: str) -> str:
-        """Extract plain text from HTML with invisible character removal."""
-        return EnhancedHtmlCleaner.clean_html(text, aggressive_cleaning=True)
+        """Extract plain text from HTML for artifact extraction."""
+        return PhishingEmailHtmlCleaner.clean_html(text, aggressive_cleaning=True)
     
     def _extract_artifacts_from_text(self, text: str) -> Dict[str, Set[str]]:
         """Extract URLs, IPs, and domains from text content"""
