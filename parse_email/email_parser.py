@@ -36,6 +36,7 @@ from email.message import EmailMessage
 # URL processing utilities
 from .url.processor import UrlProcessor
 from .pdf_utils import extract_text_from_pdf
+from .mime_walker import walk_layers
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,8 @@ class EmailParser:
         self.statistics = {}
         # Use parent's list if provided, otherwise create new
         self.all_text_content = self.parent_text_content if self.parent_text_content is not None else []
+        self.carrier_depth = 0
+        self.carrier_chain: list[str] = []
 
     
     def parse_file(self, file_path: str, forensics_mode: bool = False) -> Dict[str, Any]:
@@ -194,6 +197,17 @@ class EmailParser:
             
             # Walk the message tree and collect content blocks
             self.content_blocks = list(self._walk_message(msg, depth))
+
+            # Detect carrier chain using lightweight walker
+            carriers = []
+            for d, _m, flag, vendor in walk_layers(msg):
+                if d == len(carriers):
+                    if flag:
+                        carriers.append(vendor)
+                    else:
+                        break
+            self.carrier_depth = len(carriers)
+            self.carrier_chain = carriers
 
             # Build and return output (includes artifact extraction)
             return self._build_output(source_name, msg, forensics_mode)
@@ -1383,6 +1397,8 @@ class EmailParser:
             'content': sorted_blocks,  # Always a list, never a string
             'statistics': statistics,
             'extracted_artifacts': extracted_artifacts,
+            'carrier_depth': self.carrier_depth,
+            'carrier_chain': self.carrier_chain,
             'plain_text': plain_text,
         }
 
