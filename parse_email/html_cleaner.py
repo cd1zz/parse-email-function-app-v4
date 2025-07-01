@@ -116,9 +116,13 @@ class PhishingEmailHtmlCleaner:
         else:
             converted = cls._remove_invisible_chars_conservative(converted)
 
-        converted = cls._replace_problematic_unicode_chars(converted)
-        converted = cls._normalize_whitespace(converted)
+        # FIXED: Do normalization BEFORE unicode character replacements
         converted = unicodedata.normalize("NFKC", converted)
+        
+        # FIXED: Replace problematic unicode chars AFTER normalization
+        converted = cls._replace_problematic_unicode_chars(converted)
+        
+        converted = cls._normalize_whitespace(converted)
 
         # Final validation to ensure no invisible characters remain
         if aggressive_cleaning:

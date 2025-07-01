@@ -1,4 +1,5 @@
 *.eml
+*.msg
 output.json
 # Ignore virtual environment directories
 .venv/
