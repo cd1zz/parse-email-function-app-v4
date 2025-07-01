@@ -867,6 +867,7 @@ class EmailParser:
                     # Store extracted text only when it's actually text.
                     if encoding != 'base64':
                         mime_part_data['content'] = text
+                        # ALWAYS create text_only for HTML content at ANY depth
                         if content_type == 'text/html':
                             mime_part_data['text_only'] = self._clean_html(text)
 
@@ -980,6 +981,7 @@ class EmailParser:
 
                 if encoding != 'base64':
                     email_body_data['content'] = text
+                    # ALWAYS create text_only for HTML content at ANY depth
                     if content_type == 'text/html':
                         email_body_data['text_only'] = self._clean_html(text)
                 
@@ -1118,6 +1120,39 @@ class EmailParser:
             'sources_breakdown': sources_breakdown
         }
 
+    def _ensure_html_cleaning_at_all_depths(self, content_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ensure all HTML content at any depth has been cleaned to text_only."""
+        
+        def process_block(block):
+            if not isinstance(block, dict):
+                return block
+            
+            # Create a copy to avoid modifying the original
+            processed_block = dict(block)
+            
+            # If this is HTML content and missing text_only, create it
+            if (processed_block.get('mime_type') == 'text/html' and 
+                'content' in processed_block and 
+                'text_only' not in processed_block and
+                processed_block.get('encoding') != 'base64'):
+                
+                logger.debug(f"Post-processing HTML content for {processed_block.get('type', 'unknown')} block")
+                processed_block['text_only'] = self._clean_html(processed_block['content'])
+            
+            # Recursively process nested content
+            if 'nested_content' in processed_block:
+                nested = processed_block['nested_content']
+                if isinstance(nested, dict) and 'content' in nested:
+                    if isinstance(nested['content'], list):
+                        processed_block['nested_content'] = dict(nested)
+                        processed_block['nested_content']['content'] = [
+                            process_block(nested_block) for nested_block in nested['content']
+                        ]
+            
+            return processed_block
+        
+        return [process_block(block) for block in content_blocks]
+
     def _truncate_content_for_brevity(self, content_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Truncate content fields in blocks for non-forensics mode while preserving structure.
         
@@ -1180,6 +1215,9 @@ class EmailParser:
         sorted_blocks = sorted(self.content_blocks, 
                              key=lambda x: (x['depth'], x['type'], x.get('mime_type', '')))
         
+        # CRITICAL: Ensure ALL HTML content at ANY depth has been cleaned
+        sorted_blocks = self._ensure_html_cleaning_at_all_depths(sorted_blocks)
+        
         # Collect statistics
         type_counts = {}
         mime_type_counts = {}
@@ -1227,13 +1265,70 @@ class EmailParser:
         # Extract artifacts from all collected text content
         extracted_artifacts = self._extract_all_artifacts()
 
-        plain_text = self._normalize_whitespace(
-            "\n\n".join(
-                block['text']
-                for block in self.all_text_content
-                if isinstance(block.get('text'), str)
-            )
-        )
+        # Build plain_text from cleaned text only (not raw HTML)
+        plain_text_parts = []
+        
+        def collect_plain_text(blocks, depth=0):
+            """Recursively collect cleaned plain text from content blocks at ALL depths."""
+            logger.debug(f"{'  ' * depth}Collecting plain text from {len(blocks)} blocks at depth {depth}")
+            
+            for i, block in enumerate(blocks):
+                if not isinstance(block, dict):
+                    continue
+                    
+                block_type = block.get('type', '')
+                mime_type = block.get('mime_type', '')
+                
+                logger.debug(f"{'  ' * depth}  Block {i}: type={block_type}, mime_type={mime_type}")
+                
+                # For HTML content, ALWAYS use text_only (cleaned) regardless of depth
+                if mime_type == 'text/html':
+                    if 'text_only' in block and block['text_only'].strip():
+                        logger.debug(f"{'  ' * depth}    Adding cleaned HTML text ({len(block['text_only'])} chars)")
+                        plain_text_parts.append(block['text_only'])
+                    elif 'content' in block and block.get('encoding') != 'base64':
+                        # Fallback: if text_only missing, clean the HTML content now
+                        logger.debug(f"{'  ' * depth}    No text_only found, cleaning HTML content directly")
+                        cleaned = self._clean_html(block['content'])
+                        if cleaned.strip():
+                            plain_text_parts.append(cleaned)
+                
+                # For plain text content, use content directly
+                elif mime_type == 'text/plain':
+                    if 'content' in block and block.get('encoding') != 'base64' and block['content'].strip():
+                        logger.debug(f"{'  ' * depth}    Adding plain text content ({len(block['content'])} chars)")
+                        plain_text_parts.append(block['content'])
+                
+                # For email headers, add key headers
+                elif block_type == 'email_headers':
+                    headers = block.get('headers', {})
+                    for key in ['Subject', 'From', 'To', 'Date']:
+                        if key in headers and headers[key]:
+                            plain_text_parts.append(f"{key}: {headers[key]}")
+                
+                # For PDF attachments, add extracted text
+                elif 'pdf_text' in block and block['pdf_text'].strip():
+                    logger.debug(f"{'  ' * depth}    Adding PDF text ({len(block['pdf_text'])} chars)")
+                    plain_text_parts.append(block['pdf_text'])
+                
+                # Handle nested content recursively - this is key for deep nesting
+                if 'nested_content' in block:
+                    nested = block['nested_content']
+                    if isinstance(nested, dict):
+                        # Handle nested email results
+                        nested_blocks = nested.get('content', [])
+                        if isinstance(nested_blocks, list):
+                            logger.debug(f"{'  ' * depth}    Recursing into {len(nested_blocks)} nested blocks")
+                            collect_plain_text(nested_blocks, depth + 1)
+                        
+                        # Also check if nested content has its own plain_text
+                        if 'plain_text' in nested and nested['plain_text'].strip():
+                            logger.debug(f"{'  ' * depth}    Adding nested plain_text ({len(nested['plain_text'])} chars)")
+                            plain_text_parts.append(nested['plain_text'])
+        
+        collect_plain_text(sorted_blocks)
+        
+        plain_text = self._normalize_whitespace("\n\n".join(plain_text_parts))
 
         # FIXED: Handle content truncation properly without breaking the data structure
         if forensics_mode:
