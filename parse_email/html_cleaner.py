@@ -1,113 +1,71 @@
-"""Enhanced HTML cleaning utilities."""
+"""HTML to text cleaning using html2text for phishing analysis."""
 
 from __future__ import annotations
 
+import html2text
 import html
 import re
 import unicodedata
-from bs4 import BeautifulSoup
 
 
-class EnhancedHtmlCleaner:
-    """HTML cleaner with invisible character removal."""
+class PhishingEmailHtmlCleaner:
+    """Convert HTML to plain text while preserving URLs."""
 
-    # Unicode character replacements for common problematic characters
+    # Unicode replacements for problematic characters
     UNICODE_REPLACEMENTS = {
-        '\u2018': "'",    # Left single quotation mark
-        '\u2019': "'",    # Right single quotation mark
-        '\u201C': '"',    # Left double quotation mark
-        '\u201D': '"',    # Right double quotation mark
-        '\u201A': "'",    # Single low-9 quotation mark
-        '\u201E': '"',    # Double low-9 quotation mark
-        '\u2039': '<',    # Single left-pointing angle quotation mark
-        '\u203A': '>',    # Single right-pointing angle quotation mark
-        '\u00AB': '<<',   # Left-pointing double angle quotation mark
-        '\u00BB': '>>',   # Right-pointing double angle quotation mark
-
-        # Dashes and hyphens
-        '\u2013': '-',    # En dash
-        '\u2014': '--',   # Em dash
-        '\u2015': '--',   # Horizontal bar
-        '\u2212': '-',    # Minus sign
-
-        # Spaces (these will be handled by both replacement and removal)
-        '\u00A0': ' ',    # Non-breaking space
-        '\u2002': ' ',    # En space
-        '\u2003': ' ',    # Em space
-        '\u2009': ' ',    # Thin space
-        '\u200A': ' ',    # Hair space
-        '\u202F': ' ',    # Narrow no-break space
-        '\u205F': ' ',    # Medium mathematical space
-        '\u3000': ' ',    # Ideographic space
-
-        # Symbols
-        '\u00A9': '(c)',  # Copyright sign
-        '\u00AE': '(R)',  # Registered sign
-        '\u2122': '(TM)', # Trade mark sign
-        '\u00B0': 'deg',  # Degree sign
-        '\u00B1': '+/-',  # Plus-minus sign
-        '\u00B7': '*',    # Middle dot
-        '\u2022': '*',    # Bullet
-        '\u2026': '...',  # Horizontal ellipsis
-        '\u00D7': 'x',    # Multiplication sign
-        '\u00F7': '/',    # Division sign
-
-        # Currency (convert to text abbreviations)
-        '\u20AC': 'EUR',  # Euro sign
-        '\u00A3': 'GBP',  # Pound sign
-        '\u00A5': 'JPY',  # Yen sign
-        '\u00A2': 'c',    # Cent sign
-
-        # Fractions
-        '\u00BC': '1/4',  # Vulgar fraction one quarter
-        '\u00BD': '1/2',  # Vulgar fraction one half
-        '\u00BE': '3/4',  # Vulgar fraction three quarters
-        '\u2153': '1/3',  # Vulgar fraction one third
-        '\u2154': '2/3',  # Vulgar fraction two thirds
-
-        # Additional punctuation
-        '\u2032': "'",    # Prime (feet/minutes)
-        '\u2033': '"',    # Double prime (inches/seconds)
-        '\u2035': '`',    # Reversed prime
+        '\u2018': "'",
+        '\u2019': "'",
+        '\u201C': '"',
+        '\u201D': '"',
+        '\u201A': "'",
+        '\u201E': '"',
+        '\u2039': '<',
+        '\u203A': '>',
+        '\u00AB': '<<',
+        '\u00BB': '>>',
+        '\u2013': '-',
+        '\u2014': '--',
+        '\u2015': '--',
+        '\u2212': '-',
+        '\u00A0': ' ',
+        '\u2002': ' ',
+        '\u2003': ' ',
+        '\u2009': ' ',
+        '\u200A': ' ',
+        '\u202F': ' ',
+        '\u205F': ' ',
+        '\u3000': ' ',
+        '\u00A9': '(c)',
+        '\u00AE': '(R)',
+        '\u2122': '(TM)',
+        '\u00B0': 'deg',
+        '\u00B1': '+/-',
+        '\u00B7': '*',
+        '\u2022': '*',
+        '\u2026': '...',
+        '\u00D7': 'x',
+        '\u00F7': '/',
+        '\u20AC': 'EUR',
+        '\u00A3': 'GBP',
+        '\u00A5': 'JPY',
+        '\u00A2': 'c',
+        '\u00BC': '1/4',
+        '\u00BD': '1/2',
+        '\u00BE': '3/4',
+        '\u2153': '1/3',
+        '\u2154': '2/3',
+        '\u2032': "'",
+        '\u2033': '"',
+        '\u2035': '`',
     }
 
     INVISIBLE_CHARS = {
-        '\u00AD',  # Soft hyphen (not in replacements since it should be removed)
-        '\u034F',  # Combining grapheme joiner
-        '\u061C',  # Arabic letter mark
-        '\u115F',  # Hangul choseong filler
-        '\u1160',  # Hangul jungseong filler
-        '\u17B4',  # Khmer vowel inherent AQ
-        '\u17B5',  # Khmer vowel inherent AA
-        '\u180E',  # Mongolian vowel separator
-        '\u200B',  # Zero width space
-        '\u200C',  # Zero width non-joiner
-        '\u200D',  # Zero width joiner
-        '\u200E',  # Left-to-right mark
-        '\u200F',  # Right-to-left mark
-        '\u202A',  # Left-to-right embedding
-        '\u202B',  # Right-to-left embedding
-        '\u202C',  # Pop directional formatting
-        '\u202D',  # Left-to-right override
-        '\u202E',  # Right-to-left override
-        '\u2060',  # Word joiner
-        '\u2061',  # Function application
-        '\u2062',  # Invisible times
-        '\u2063',  # Invisible separator
-        '\u2064',  # Invisible plus
-        '\u2066',  # Left-to-right isolate
-        '\u2067',  # Right-to-left isolate
-        '\u2068',  # First strong isolate
-        '\u2069',  # Pop directional isolate
-        '\u206A',  # Inhibit symmetric swapping
-        '\u206B',  # Activate symmetric swapping
-        '\u206C',  # Inhibit Arabic form shaping
-        '\u206D',  # Activate Arabic form shaping
-        '\u206E',  # National digit shapes
-        '\u206F',  # Nominal digit shapes
-        '\u3164',  # Hangul filler
-        '\uFEFF',  # Zero width no-break space
-        '\uFFA0',  # Halfwidth hangul filler
+        '\u00AD', '\u034F', '\u061C', '\u115F', '\u1160', '\u17B4', '\u17B5',
+        '\u180E', '\u200B', '\u200C', '\u200D', '\u200E', '\u200F', '\u202A',
+        '\u202B', '\u202C', '\u202D', '\u202E', '\u2060', '\u2061', '\u2062',
+        '\u2063', '\u2064', '\u2066', '\u2067', '\u2068', '\u2069', '\u206A',
+        '\u206B', '\u206C', '\u206D', '\u206E', '\u206F', '\u3164', '\uFEFF',
+        '\uFFA0',
     }
 
     CONTROL_CHAR_RANGES = [
@@ -119,28 +77,36 @@ class EnhancedHtmlCleaner:
 
     @classmethod
     def clean_html(cls, text: str, aggressive_cleaning: bool = True) -> str:
-        """Clean HTML and remove invisible characters."""
+        """Convert HTML to plain text using html2text with URL preservation."""
         if not text:
             return ""
 
-        soup = BeautifulSoup(text, "html.parser")
-        for element in soup(["script", "style", "head", "meta", "link"]):
-            element.decompose()
-        text = soup.get_text(separator="\n")
+        # html2text conversion
+        converter = html2text.HTML2Text()
+        converter.body_width = 0
+        converter.protect_links = True
+        converter.inline_links = True
+        converter.ignore_images = True
+        converted = converter.handle(text)
 
-        text = html.unescape(text)
+        # html.unescape to handle entities that html2text may leave
+        converted = html.unescape(converted)
 
         if aggressive_cleaning:
-            text = cls._remove_invisible_chars_aggressive(text)
+            converted = cls._remove_invisible_chars_aggressive(converted)
         else:
-            text = cls._remove_invisible_chars_conservative(text)
+            converted = cls._remove_invisible_chars_conservative(converted)
 
-        # Replace problematic but visible Unicode characters
-        text = cls._replace_problematic_unicode_chars(text)
+        converted = cls._replace_problematic_unicode_chars(converted)
+        converted = cls._normalize_whitespace(converted)
+        converted = unicodedata.normalize("NFKC", converted)
 
-        text = cls._normalize_whitespace(text)
-        text = unicodedata.normalize("NFKC", text)
-        return text.strip()
+        # Extract URLs from markdown links and append as separate lines
+        urls = re.findall(r'\[[^\]]+\]\(([^)\s]+)\)', converted)
+        if urls:
+            converted = converted.strip() + "\n" + "\n".join(urls)
+
+        return converted.strip()
 
     @classmethod
     def _remove_invisible_chars_aggressive(cls, text: str) -> str:

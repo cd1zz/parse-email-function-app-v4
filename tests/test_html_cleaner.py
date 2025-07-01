@@ -6,7 +6,7 @@ MODULE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'par
 spec = importlib.util.spec_from_file_location('html_cleaner', MODULE_PATH)
 html_cleaner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(html_cleaner)
-EnhancedHtmlCleaner = html_cleaner.EnhancedHtmlCleaner
+PhishingEmailHtmlCleaner = html_cleaner.PhishingEmailHtmlCleaner
 
 
 @pytest.mark.parametrize("input_html,expected", [
@@ -16,4 +16,4 @@ EnhancedHtmlCleaner = html_cleaner.EnhancedHtmlCleaner
     ("<p>\u201Cdouble\u201D</p>", '"double"'),
 ])
 def test_unicode_cleaning(input_html, expected):
-    assert EnhancedHtmlCleaner.clean_html(input_html) == expected
+    assert PhishingEmailHtmlCleaner.clean_html(input_html) == expected
