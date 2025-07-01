@@ -62,11 +62,10 @@ def main():
                 stats = result['statistics']
                 artifacts = result['extracted_artifacts']
 
-                # When forensics_mode is False, result['content'] is replaced
-                # with a summary string. Guard against that here.
-                content_blocks = result['content'] if isinstance(result['content'], list) else []
+                # Content is now always a list of blocks
+                content_blocks = result['content']
                 attachment_count = sum(
-                    1 for b in content_blocks if b.get('disposition') == 'attachment'
+                    1 for b in content_blocks if isinstance(b, dict) and b.get('disposition') == 'attachment'
                 )
 
                 print(f"\n✓ Successfully parsed: {file_path}")
@@ -154,12 +153,13 @@ def main():
                 
                 # Show binary format summary
                 binary_found = []
-                content_blocks = result['content'] if isinstance(result['content'], list) else []
+                content_blocks = result['content']  # Now always a list
                 for block in content_blocks:
-                    if block['type'] in ['nested_msg', 'binary_msg']:
-                        binary_found.append('MSG')
-                    elif block['type'] in ['tnef_container', 'binary_tnef']:
-                        binary_found.append('TNEF')
+                    if isinstance(block, dict):
+                        if block.get('type') in ['nested_msg', 'binary_msg']:
+                            binary_found.append('MSG')
+                        elif block.get('type') in ['tnef_container', 'binary_tnef']:
+                            binary_found.append('TNEF')
                 
                 if binary_found:
                     print(f"  Binary formats: {', '.join(set(binary_found))}")
@@ -172,4 +172,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -870,11 +870,9 @@ class EmailParser:
                         if content_type == 'text/html':
                             mime_part_data['text_only'] = self._clean_html(text)
 
-
                     if pdf_text:
                         mime_part_data['pdf_text'] = pdf_text
                     
-
                     logger.debug(f"{'  ' * depth}    About to collect text from mime_part")
 
                     # Collect text content for artifact extraction
@@ -984,7 +982,6 @@ class EmailParser:
                     email_body_data['content'] = text
                     if content_type == 'text/html':
                         email_body_data['text_only'] = self._clean_html(text)
-                
                 
                 # Collect text content for artifact extraction
                 self._collect_text_content(email_body_data)
@@ -1120,6 +1117,40 @@ class EmailParser:
             },
             'sources_breakdown': sources_breakdown
         }
+
+    def _truncate_content_for_brevity(self, content_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Truncate content fields in blocks for non-forensics mode while preserving structure.
+        
+        Note: text_only fields are NEVER truncated as they contain valuable extracted plain text.
+        Only raw binary/HTML content fields are truncated.
+        """
+        truncated_blocks = []
+        
+        for block in content_blocks:
+            # Make a copy to avoid modifying the original
+            truncated_block = dict(block)
+            
+            # Truncate large raw content fields but keep the block structure
+            if 'content' in truncated_block and isinstance(truncated_block['content'], str):
+                content = truncated_block['content']
+                # Only truncate if it's not already base64 encoded and is longer than 500 chars
+                if len(content) > 500 and truncated_block.get('encoding') != 'base64':
+                    truncated_block['content'] = content[:500] + '... [truncated for brevity]'
+            
+            # NEVER truncate text_only - this is the valuable extracted plain text
+            # text_only should always contain the complete cleaned text extraction
+            
+            # Recursively handle nested content
+            if 'nested_content' in truncated_block:
+                nested = truncated_block['nested_content']
+                if isinstance(nested, dict) and 'content' in nested:
+                    if isinstance(nested['content'], list):
+                        truncated_block['nested_content'] = dict(nested)
+                        truncated_block['nested_content']['content'] = self._truncate_content_for_brevity(nested['content'])
+            
+            truncated_blocks.append(truncated_block)
+        
+        return truncated_blocks
     
     def _build_output(
         self,
@@ -1204,22 +1235,23 @@ class EmailParser:
             )
         )
 
+        # FIXED: Handle content truncation properly without breaking the data structure
+        if forensics_mode:
+            # Full forensics mode - include everything
+            content_for_output = sorted_blocks
+        else:
+            # Non-forensics mode - truncate content fields but preserve block structure
+            content_for_output = self._truncate_content_for_brevity(sorted_blocks)
+
         output = {
             'source': source_name,
             'size': len(self.raw_content),
             'depth': self.current_depth,
             'email_metadata': email_metadata,
-            'content': sorted_blocks,
+            'content': content_for_output,  # Always a list, never a string
             'statistics': statistics,
             'extracted_artifacts': extracted_artifacts,
             'plain_text': plain_text,
         }
 
-        if plain_text and not forensics_mode:
-            output['content'] = (
-                'Original content truncated for brevity. '
-                'Run with --forensics_mode to get full key value pairs.'
-            )
-
         return output
-
