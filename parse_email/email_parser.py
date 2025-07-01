@@ -227,8 +227,12 @@ class EmailParser:
         return '\n'.join(cleaned_lines).strip()
 
     def _contains_html_tags(self, text: str) -> bool:
-        """Check if text contains HTML tags."""
-        return bool(re.search(r'<[^>]+>', text))
+        """Check if text contains HTML tags, ignoring angle-bracketed URLs."""
+        if not text:
+            return False
+        # Remove patterns like <http://example.com> which are not HTML tags
+        sanitized = re.sub(r'<https?://[^>]+>', '', text, flags=re.IGNORECASE)
+        return bool(re.search(r'<[^>]+>', sanitized))
 
     def _fallback_html_clean(self, text: str) -> str:
         """Fallback HTML cleaning when html2text fails."""
@@ -239,7 +243,8 @@ class EmailParser:
         text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
         
-        # Extract URLs before removing tags
+        # Extract URLs before removing tags so artifact extraction can capture
+        # them even if the href attribute is stripped during cleaning
         url_pattern = r'href\s*=\s*["\']([^"\']+)["\']'
         urls = re.findall(url_pattern, text, re.IGNORECASE)
         
@@ -252,10 +257,11 @@ class EmailParser:
         # Clean whitespace
         text = re.sub(r'\s+', ' ', text).strip()
         
-        # Add extracted URLs
-        if urls:
-            unique_urls = list(dict.fromkeys(urls))  # Preserve order, remove duplicates
-            text += '\n\nExtracted URLs:\n' + '\n'.join(unique_urls)
+        # Previously the extracted URLs were appended to the cleaned text in an
+        # "Extracted URLs" section. This polluted the plain text output and
+        # duplicated data already available via the dedicated artifacts field.
+        # The URLs are still returned separately by the artifact extraction
+        # routines, so we no longer include them here.
 
         text = Cleaner._remove_invisible_chars_aggressive(text)
         text = unicodedata.normalize("NFKC", text)
