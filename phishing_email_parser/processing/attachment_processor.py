@@ -1,0 +1,215 @@
+"""
+Email attachment processor for phishing analysis.
+
+Handles extraction, analysis, and text content extraction from email attachments.
+"""
+
+import os
+import logging
+import hashlib
+import mimetypes
+from typing import List, Dict, Any, Optional
+from email.message import Message
+from pathlib import Path
+
+from .pdf_utils import extract_text_from_pdf
+
+logger = logging.getLogger(__name__)
+
+
+class AttachmentProcessor:
+    """Process email attachments for phishing analysis."""
+    
+    # File types that commonly contain text content
+    TEXT_EXTRACTABLE_TYPES = {
+        'application/pdf',
+        'text/plain',
+        'text/html',
+        'text/csv',
+        'application/rtf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    }
+    
+    # Suspicious file extensions to flag
+    SUSPICIOUS_EXTENSIONS = {
+        '.exe', '.scr', '.bat', '.cmd', '.com', '.pif', '.vbs', '.js', '.jar',
+        '.zip', '.rar', '.7z', '.ace', '.arj', '.cab', '.lzh', '.tar', '.gz'
+    }
+    
+    def __init__(self, temp_dir: str):
+        """Initialize with temporary directory for file extraction."""
+        self.temp_dir = temp_dir
+        os.makedirs(temp_dir, exist_ok=True)
+        
+    def process_attachments(self, msg: Message, output_dir: str) -> List[Dict[str, Any]]:
+        """Process all attachments in an email message."""
+        attachments = []
+        attachment_idx = 1
+        
+        for part in msg.iter_attachments():
+            try:
+                attachment_data = self._process_single_attachment(
+                    part, attachment_idx, output_dir
+                )
+                if attachment_data:
+                    attachments.append(attachment_data)
+                    attachment_idx += 1
+            except Exception as e:
+                logger.error(f"Error processing attachment {attachment_idx}: {e}")
+                # Create minimal error entry
+                attachments.append({
+                    "index": attachment_idx,
+                    "filename": f"attachment_{attachment_idx}_error",
+                    "error": str(e),
+                    "processed": False
+                })
+                attachment_idx += 1
+        
+        return attachments
+    
+    def _process_single_attachment(self, part: Message, index: int, 
+                                 output_dir: str) -> Optional[Dict[str, Any]]:
+        """Process a single email attachment."""
+        filename = part.get_filename()
+        if not filename:
+            filename = f"attachment_{index}"
+            
+        content_type = part.get_content_type()
+        payload = part.get_payload(decode=True)
+        
+        if not payload:
+            return None
+            
+        # Save attachment to disk
+        file_path = os.path.join(output_dir, filename)
+        try:
+            with open(file_path, 'wb') as f:
+                f.write(payload)
+        except Exception as e:
+            logger.error(f"Error saving attachment {filename}: {e}")
+            file_path = None
+        
+        # Basic file analysis
+        file_size = len(payload)
+        file_hash = hashlib.sha256(payload).hexdigest()
+        file_extension = Path(filename).suffix.lower()
+        
+        attachment_info = {
+            "index": index,
+            "filename": filename,
+            "content_type": content_type,
+            "size": file_size,
+            "sha256": file_hash,
+            "extension": file_extension,
+            "disk_path": file_path,
+            "is_suspicious_extension": file_extension in self.SUSPICIOUS_EXTENSIONS,
+            "text_content": None,
+            "urls": [],
+            "processed": True
+        }
+        
+        # Extract text content if possible
+        if content_type in self.TEXT_EXTRACTABLE_TYPES:
+            text_content = self._extract_text_from_attachment(payload, content_type, filename)
+            if text_content:
+                attachment_info["text_content"] = text_content
+                # Extract URLs from text content
+                urls = self._extract_urls_from_text(text_content)
+                attachment_info["urls"] = urls
+        
+        # Handle nested email attachments
+        if content_type == "message/rfc822" or filename.lower().endswith('.eml'):
+            attachment_info["is_nested_email"] = True
+            # The nested email will be handled by the main parser's walk_layers
+        else:
+            attachment_info["is_nested_email"] = False
+            
+        return attachment_info
+    
+    def _extract_text_from_attachment(self, payload: bytes, content_type: str, 
+                                    filename: str) -> Optional[str]:
+        """Extract text content from attachment based on content type."""
+        try:
+            if content_type == 'application/pdf':
+                return extract_text_from_pdf(payload)
+            elif content_type.startswith('text/'):
+                # Try to decode as text
+                for encoding in ['utf-8', 'utf-16', 'iso-8859-1', 'cp1252']:
+                    try:
+                        return payload.decode(encoding)
+                    except UnicodeDecodeError:
+                        continue
+                return payload.decode('utf-8', errors='replace')
+            elif content_type == 'text/html':
+                # Import here to avoid circular import
+                from .html_cleaner import PhishingEmailHtmlCleaner
+                html_text = payload.decode('utf-8', errors='replace')
+                return PhishingEmailHtmlCleaner.clean_html(html_text)
+            elif content_type in [
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            ]:
+                return self._extract_from_office_doc(payload, filename)
+            else:
+                # Try to extract as plain text for other types
+                try:
+                    return payload.decode('utf-8', errors='replace')[:1000]  # Limit size
+                except:
+                    return None
+        except Exception as e:
+            logger.warning(f"Error extracting text from {filename}: {e}")
+            return f"[Error extracting text: {e}]"
+    
+    def _extract_from_office_doc(self, payload: bytes, filename: str) -> Optional[str]:
+        """Extract text from Office documents."""
+        try:
+            # Try to use python-docx for Word documents
+            if filename.lower().endswith('.docx'):
+                try:
+                    import docx
+                    from io import BytesIO
+                    doc = docx.Document(BytesIO(payload))
+                    return '\n'.join([paragraph.text for paragraph in doc.paragraphs])
+                except ImportError:
+                    logger.warning("python-docx not available for .docx extraction")
+                except Exception as e:
+                    logger.warning(f"Error with docx extraction: {e}")
+            
+            # For other Office formats or fallback, try basic text extraction
+            text = payload.decode('utf-8', errors='replace')
+            # Filter out binary noise, keep only printable text
+            import string
+            printable = set(string.printable)
+            filtered_text = ''.join(filter(lambda x: x in printable, text))
+            if len(filtered_text) > 50:  # Only return if we got substantial text
+                return filtered_text[:2000]  # Limit size
+            return None
+        except Exception as e:
+            logger.warning(f"Error extracting from Office document {filename}: {e}")
+            return None
+    
+    def _extract_urls_from_text(self, text: str) -> List[str]:
+        """Extract URLs from text content."""
+        import re
+        
+        if not text:
+            return []
+            
+        # Pattern to match URLs
+        url_pattern = re.compile(
+            r'https?://[^\s<>"{}|\\^`\[\]]+|www\.[^\s<>"{}|\\^`\[\]]+',
+            re.IGNORECASE
+        )
+        
+        urls = url_pattern.findall(text)
+        # Clean up URLs (remove trailing punctuation)
+        cleaned_urls = []
+        for url in urls:
+            cleaned = url.rstrip('.,;:!?)]}')
+            if cleaned:
+                cleaned_urls.append(cleaned)
+        
+        return list(set(cleaned_urls))  # Remove duplicates

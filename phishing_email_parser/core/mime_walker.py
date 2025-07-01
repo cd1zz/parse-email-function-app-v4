@@ -19,10 +19,25 @@ _nested_cts = {"message/rfc822", "application/vnd.ms‑outlook"}  # .msg OLE she
 
 def _should_recurse(part: Message) -> bool:
     ct = part.get_content_type().lower()
+    fn = part.get_filename("") or ""
     if ct in _nested_cts:
         return True
-    fn = part.get_filename("")
-    return fn.lower().endswith((".eml", ".msg"))
+    if fn.lower().endswith((".eml", ".msg")):
+        return True
+    if ct == "application/octet-stream":
+        # Heuristic: if filename suggests email or content decodes to a valid email
+        if fn.lower().endswith((".eml", ".msg")):
+            return True
+        try:
+            payload = part.get_payload(decode=True)
+            if payload:
+                msg = email.message_from_bytes(payload)
+                if msg.get("From") or msg.get("Subject"):
+                    return True
+        except Exception:
+            pass
+    return False
+
 
 
 def walk_layers(root: Message) -> Generator[Tuple[int, Message, Optional[str]], None, None]:

@@ -21,3 +21,4 @@ __pycache__/
 *.pem
 *.log
 .python_packages/
+zArchive/*
