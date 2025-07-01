@@ -132,54 +132,10 @@ class PhishingEmailParser:
         
         return result
     
-    def _get_attachments_compatible(self, msg: Message):
-        """Get attachments in a way compatible with all Python versions."""
-        attachments = []
-        
-        if hasattr(msg, 'iter_attachments'):
-            # New API (Python 3.6+)
-            try:
-                return list(msg.iter_attachments())
-            except Exception as e:
-                logger.warning(f"Error with iter_attachments: {e}")
-        
-        # Fallback for older Python or email policies
-        if msg.is_multipart():
-            for part in msg.walk():
-                # Skip the main message itself
-                if part == msg:
-                    continue
-                    
-                # Check if this part is an attachment
-                content_disposition = part.get('Content-Disposition', '')
-                filename = part.get_filename()
-                
-                # It's an attachment if:
-                # 1. It has a filename, OR
-                # 2. Content-Disposition is 'attachment', OR  
-                # 3. It's not text/plain or text/html (and not the main body)
-                if (filename or 
-                    'attachment' in content_disposition.lower() or
-                    (part.get_content_type() not in ['text/plain', 'text/html'] and
-                     not part.get_content_type().startswith('multipart/'))):
-                    attachments.append(part)
-        
-        return attachments
-    
-    def _create_temp_msg_with_attachments(self, attachment_parts):
-        """Create a temporary message object that works with the attachment processor."""
-        class TempMsg:
-            def __init__(self, parts):
-                self.parts = parts
-            
-            def iter_attachments(self):
-                return iter(self.parts)
-        
-        return TempMsg(attachment_parts)
 
-    def _parse_single_layer(self, msg: Message, depth: int, vendor_tag: Optional[str], 
+    def _parse_single_layer(self, msg: Message, depth: int, vendor_tag: Optional[str],
                            output_dir: str) -> Dict[str, Any]:
-        """Parse a single message layer - Compatible version."""
+        """Parse a single message layer."""
         logger.debug(f"Parsing layer {depth}, vendor: {vendor_tag}")
         
         layer = {
@@ -194,14 +150,9 @@ class PhishingEmailParser:
             "nested_emails": []
         }
         
-        # Get attachments using compatible method
-        attachment_parts = self._get_attachments_compatible(msg)
-        
         # Process attachments
-        if attachment_parts:
-            # Create a temporary message-like object for the attachment processor
-            temp_msg = self._create_temp_msg_with_attachments(attachment_parts)
-            attachments = self.attachment_processor.process_attachments(temp_msg, output_dir)
+        attachments = self.attachment_processor.process_attachments(msg, output_dir)
+        if attachments:
             layer["attachments"] = attachments
         
         # Extract images with OCR
@@ -231,7 +182,7 @@ class PhishingEmailParser:
         }
     
     def _extract_body(self, msg: Message) -> Dict[str, Any]:
-        """Extract and process email body content - Compatible version."""
+        """Extract and process email body content."""
         body_data = {
             "plain_text": "",
             "html_text": "",
@@ -241,31 +192,12 @@ class PhishingEmailParser:
         }
         
         def get_content_safe(part):
-            """Safely get content from email part with fallback methods."""
+            """Safely get content from an email part."""
             try:
-                # Try new API first
-                if hasattr(part, 'get_content'):
-                    return part.get_content()
-                else:
-                    # Fallback to older API
-                    payload = part.get_payload(decode=True)
-                    if payload:
-                        charset = part.get_content_charset() or 'utf-8'
-                        if isinstance(payload, bytes):
-                            return payload.decode(charset, errors='replace')
-                        return payload
+                return part.get_content()
             except Exception as e:
                 logger.warning(f"Error getting content from email part: {e}")
-                # Last resort - try raw payload
-                try:
-                    payload = part.get_payload(decode=True)
-                    if payload and isinstance(payload, bytes):
-                        return payload.decode('utf-8', errors='replace')
-                    elif payload:
-                        return str(payload)
-                except:
-                    return ""
-            return ""
+                return ""
         
         if msg.is_multipart():
             for part in msg.walk():
