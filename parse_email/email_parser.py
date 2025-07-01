@@ -17,6 +17,7 @@ import os
 import re
 import ipaddress
 import html
+from bs4 import BeautifulSoup
 from pathlib import Path
 from typing import List, Dict, Any, Iterator, Optional, Set, Tuple
 import base64
@@ -223,24 +224,18 @@ class EmailParser:
         return '\n'.join(cleaned_lines).strip()
 
     def _clean_html(self, text: str) -> str:
-        """Remove HTML tags and decode entities."""
+        """Extract plain text from HTML using BeautifulSoup."""
         if not text:
             return ""
 
-        # Strip out script/style blocks and comments entirely
-        text = self.SCRIPT_STYLE_PATTERN.sub(' ', text)
-        text = self.COMMENT_PATTERN.sub(' ', text)
+        soup = BeautifulSoup(text, "html.parser")
+        for element in soup(["script", "style"]):
+            element.decompose()
+        text = soup.get_text(separator="\n")
 
-        # Remove HTML tags
-        text = self.HTML_TAG_PATTERN.sub(' ', text)
-
-        # Decode HTML entities
         text = html.unescape(text)
-
-        # Clean up whitespace but keep single line breaks
         text = self._normalize_whitespace(text)
 
-        # Normalize so accents are combined and strip invisible characters
         import unicodedata
         text = unicodedata.normalize('NFC', text)
         text = ''.join(
