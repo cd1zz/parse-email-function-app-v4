@@ -24,6 +24,7 @@ from typing import List, Dict, Any, Iterator, Optional, Set, Tuple
 import base64
 import logging
 import string
+import unicodedata
 
 import tldextract  # type: ignore
 
@@ -257,6 +258,8 @@ class EmailParser:
             text += '\n\nExtracted URLs:\n' + '\n'.join(unique_urls)
 
         text = Cleaner._remove_invisible_chars_aggressive(text)
+        text = unicodedata.normalize("NFKC", text)
+        text = Cleaner._replace_problematic_unicode_chars(text)
         text = Cleaner._normalize_whitespace(text)
         return text
 
@@ -463,6 +466,8 @@ class EmailParser:
         else:
             logger.debug(f"Processing as plain text content")
             text_to_add = Cleaner._remove_invisible_chars_aggressive(content)
+            text_to_add = unicodedata.normalize("NFKC", text_to_add)
+            text_to_add = Cleaner._replace_problematic_unicode_chars(text_to_add)
             text_to_add = Cleaner._normalize_whitespace(text_to_add)
             source_suffix = mime_type or 'plain'
 
