@@ -158,7 +158,7 @@ class EmailParser:
         self.all_text_content = self.parent_text_content if self.parent_text_content is not None else []
 
     
-    def parse_file(self, file_path: str) -> Dict[str, Any]:
+    def parse_file(self, file_path: str, forensics_mode: bool = False) -> Dict[str, Any]:
         """Parse an email file"""
         file_path = Path(file_path)
         
@@ -167,10 +167,16 @@ class EmailParser:
         
         with open(file_path, 'rb') as f:
             content = f.read()
-        
-        return self.parse(content, file_path.name)
+
+        return self.parse(content, file_path.name, forensics_mode=forensics_mode)
     
-    def parse(self, raw_content: bytes, source_name: str = "email", depth: int = 0) -> Dict[str, Any]:
+    def parse(
+        self,
+        raw_content: bytes,
+        source_name: str = "email",
+        depth: int = 0,
+        forensics_mode: bool = False,
+    ) -> Dict[str, Any]:
         """Parse email content using std-lib email module."""
         self.reset()
         self.current_depth = depth
@@ -190,9 +196,9 @@ class EmailParser:
             
             # Walk the message tree and collect content blocks
             self.content_blocks = list(self._walk_message(msg, depth))
-            
+
             # Build and return output (includes artifact extraction)
-            return self._build_output(source_name, msg)
+            return self._build_output(source_name, msg, forensics_mode)
             
         except Exception as e:
             return {
@@ -1115,7 +1121,12 @@ class EmailParser:
             'sources_breakdown': sources_breakdown
         }
     
-    def _build_output(self, source_name: str, msg: EmailMessage = None) -> Dict[str, Any]:
+    def _build_output(
+        self,
+        source_name: str,
+        msg: EmailMessage | None = None,
+        forensics_mode: bool = False,
+    ) -> Dict[str, Any]:
         """Build the final output structure"""
 
         # Debug logging of collected text blocks and parser depth
@@ -1184,14 +1195,31 @@ class EmailParser:
         
         # Extract artifacts from all collected text content
         extracted_artifacts = self._extract_all_artifacts()
-        
-        return {
+
+        plain_text = self._normalize_whitespace(
+            "\n\n".join(
+                block['text']
+                for block in self.all_text_content
+                if isinstance(block.get('text'), str)
+            )
+        )
+
+        output = {
             'source': source_name,
             'size': len(self.raw_content),
             'depth': self.current_depth,
             'email_metadata': email_metadata,
             'content': sorted_blocks,
             'statistics': statistics,
-            'extracted_artifacts': extracted_artifacts
+            'extracted_artifacts': extracted_artifacts,
+            'plain_text': plain_text,
         }
+
+        if plain_text and not forensics_mode:
+            output['content'] = (
+                'Original content truncated for brevity. '
+                'Run with --forensics_mode to get full key value pairs.'
+            )
+
+        return output
 

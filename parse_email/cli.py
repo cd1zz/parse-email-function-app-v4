@@ -17,6 +17,8 @@ def main():
                        help='Extract image content (otherwise only metadata is kept)')
     parser.add_argument('--include-large-images', action='store_true',
                        help='Include large images in output (may create very large files)')
+    parser.add_argument('--forensics_mode', action='store_true',
+                       help='Preserve full content details for forensics')
     parser.add_argument('--log-file', help='Write debug log to specified file')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
 
@@ -53,7 +55,7 @@ def main():
             print(f"\n📧 Parsing: {file_path}")
             print("=" * 60)
             
-            result = email_parser.parse_file(file_path)
+            result = email_parser.parse_file(file_path, forensics_mode=args.forensics_mode)
             results.append(result)
             
             if 'error' not in result:
