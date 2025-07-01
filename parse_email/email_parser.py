@@ -16,8 +16,7 @@ import tempfile
 import os
 import re
 import ipaddress
-import html
-from bs4 import BeautifulSoup
+from .html_cleaner import EnhancedHtmlCleaner
 from pathlib import Path
 from typing import List, Dict, Any, Iterator, Optional, Set, Tuple
 import base64
@@ -224,26 +223,8 @@ class EmailParser:
         return '\n'.join(cleaned_lines).strip()
 
     def _clean_html(self, text: str) -> str:
-        """Extract plain text from HTML using BeautifulSoup."""
-        if not text:
-            return ""
-
-        soup = BeautifulSoup(text, "html.parser")
-        for element in soup(["script", "style"]):
-            element.decompose()
-        text = soup.get_text(separator="\n")
-
-        text = html.unescape(text)
-        text = self._normalize_whitespace(text)
-
-        import unicodedata
-        text = unicodedata.normalize('NFC', text)
-        text = ''.join(
-            ch for ch in text
-            if unicodedata.category(ch)[0] not in ('C', 'M') or ch == '\n'
-        )
-
-        return text
+        """Extract plain text from HTML with invisible character removal."""
+        return EnhancedHtmlCleaner.clean_html(text, aggressive_cleaning=True)
     
     def _extract_artifacts_from_text(self, text: str) -> Dict[str, Set[str]]:
         """Extract URLs, IPs, and domains from text content"""
