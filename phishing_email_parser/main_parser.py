@@ -12,7 +12,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 from email import policy
 from email.parser import BytesParser
 from email.message import Message
@@ -20,13 +20,11 @@ import tempfile
 import shutil
 
 # Import our modules - FIXED IMPORTS
-from .core.carrier_detector import is_carrier
 from .core.mime_walker import walk_layers
 from .core.html_cleaner import PhishingEmailHtmlCleaner
 from .processing.attachment_processor import AttachmentProcessor
 from .processing.msg_converter import MSGConverter
 from .url_processing.processor import UrlProcessor
-from .processing.pdf_utils import extract_text_from_pdf
 
 # For compatibility with original script functionality
 from PIL import Image

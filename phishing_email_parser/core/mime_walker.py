@@ -9,7 +9,6 @@ Yields ``(depth, msg, vendor_tag)`` where *depth* == 0 for the outer
 from __future__ import annotations
 import email
 from email.message import Message
-from pathlib import Path
 from typing import Generator, Tuple, Optional
 
 from .carrier_detector import is_carrier
