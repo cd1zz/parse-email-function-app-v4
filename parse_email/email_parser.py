@@ -223,6 +223,16 @@ class EmailParser:
                     blank = True
         return '\n'.join(cleaned_lines).strip()
 
+    def _clean_unicode(self, text: str) -> str:
+        """Remove invisible control characters from text."""
+        if not text:
+            return ""
+        import unicodedata
+        return ''.join(
+            ch for ch in text
+            if not unicodedata.category(ch).startswith('C')
+        )
+
     def _clean_html(self, text: str) -> str:
         """Extract plain text from HTML using BeautifulSoup."""
         if not text:
@@ -238,10 +248,7 @@ class EmailParser:
 
         import unicodedata
         text = unicodedata.normalize('NFC', text)
-        text = ''.join(
-            ch for ch in text
-            if unicodedata.category(ch)[0] not in ('C', 'M') or ch == '\n'
-        )
+        text = self._clean_unicode(text)
 
         return text
     
