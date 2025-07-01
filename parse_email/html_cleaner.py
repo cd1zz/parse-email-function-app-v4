@@ -11,9 +11,68 @@ from bs4 import BeautifulSoup
 class EnhancedHtmlCleaner:
     """HTML cleaner with invisible character removal."""
 
+    # Unicode character replacements for common problematic characters
+    UNICODE_REPLACEMENTS = {
+        '\u2018': "'",    # Left single quotation mark
+        '\u2019': "'",    # Right single quotation mark
+        '\u201C': '"',    # Left double quotation mark
+        '\u201D': '"',    # Right double quotation mark
+        '\u201A': "'",    # Single low-9 quotation mark
+        '\u201E': '"',    # Double low-9 quotation mark
+        '\u2039': '<',    # Single left-pointing angle quotation mark
+        '\u203A': '>',    # Single right-pointing angle quotation mark
+        '\u00AB': '<<',   # Left-pointing double angle quotation mark
+        '\u00BB': '>>',   # Right-pointing double angle quotation mark
+
+        # Dashes and hyphens
+        '\u2013': '-',    # En dash
+        '\u2014': '--',   # Em dash
+        '\u2015': '--',   # Horizontal bar
+        '\u2212': '-',    # Minus sign
+
+        # Spaces (these will be handled by both replacement and removal)
+        '\u00A0': ' ',    # Non-breaking space
+        '\u2002': ' ',    # En space
+        '\u2003': ' ',    # Em space
+        '\u2009': ' ',    # Thin space
+        '\u200A': ' ',    # Hair space
+        '\u202F': ' ',    # Narrow no-break space
+        '\u205F': ' ',    # Medium mathematical space
+        '\u3000': ' ',    # Ideographic space
+
+        # Symbols
+        '\u00A9': '(c)',  # Copyright sign
+        '\u00AE': '(R)',  # Registered sign
+        '\u2122': '(TM)', # Trade mark sign
+        '\u00B0': 'deg',  # Degree sign
+        '\u00B1': '+/-',  # Plus-minus sign
+        '\u00B7': '*',    # Middle dot
+        '\u2022': '*',    # Bullet
+        '\u2026': '...',  # Horizontal ellipsis
+        '\u00D7': 'x',    # Multiplication sign
+        '\u00F7': '/',    # Division sign
+
+        # Currency (convert to text abbreviations)
+        '\u20AC': 'EUR',  # Euro sign
+        '\u00A3': 'GBP',  # Pound sign
+        '\u00A5': 'JPY',  # Yen sign
+        '\u00A2': 'c',    # Cent sign
+
+        # Fractions
+        '\u00BC': '1/4',  # Vulgar fraction one quarter
+        '\u00BD': '1/2',  # Vulgar fraction one half
+        '\u00BE': '3/4',  # Vulgar fraction three quarters
+        '\u2153': '1/3',  # Vulgar fraction one third
+        '\u2154': '2/3',  # Vulgar fraction two thirds
+
+        # Additional punctuation
+        '\u2032': "'",    # Prime (feet/minutes)
+        '\u2033': '"',    # Double prime (inches/seconds)
+        '\u2035': '`',    # Reversed prime
+    }
+
     INVISIBLE_CHARS = {
-        '\u00A0',  # Non-breaking space
-        '\u00AD',  # Soft hyphen
+        '\u00AD',  # Soft hyphen (not in replacements since it should be removed)
         '\u034F',  # Combining grapheme joiner
         '\u061C',  # Arabic letter mark
         '\u115F',  # Hangul choseong filler
@@ -76,6 +135,9 @@ class EnhancedHtmlCleaner:
         else:
             text = cls._remove_invisible_chars_conservative(text)
 
+        # Replace problematic but visible Unicode characters
+        text = cls._replace_problematic_unicode_chars(text)
+
         text = cls._normalize_whitespace(text)
         text = unicodedata.normalize("NFKC", text)
         return text.strip()
@@ -114,6 +176,12 @@ class EnhancedHtmlCleaner:
             else:
                 cleaned.append(ch)
         return ''.join(cleaned)
+
+    @classmethod
+    def _replace_problematic_unicode_chars(cls, text: str) -> str:
+        for uni, replacement in cls.UNICODE_REPLACEMENTS.items():
+            text = text.replace(uni, replacement)
+        return text
 
     @classmethod
     def _normalize_whitespace(cls, text: str) -> str:

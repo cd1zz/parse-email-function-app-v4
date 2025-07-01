@@ -12,6 +12,8 @@ EnhancedHtmlCleaner = html_cleaner.EnhancedHtmlCleaner
 @pytest.mark.parametrize("input_html,expected", [
     ("<p>Hello\u200dWorld</p>", "HelloWorld"),
     ("<div>Te\u200bst\u200c\u200d</div>", "Test"),
+    ("<p>\u2018quotes\u2019</p>", "'quotes'"),
+    ("<p>\u201Cdouble\u201D</p>", '"double"'),
 ])
-def test_invisible_chars_removed(input_html, expected):
+def test_unicode_cleaning(input_html, expected):
     assert EnhancedHtmlCleaner.clean_html(input_html) == expected
