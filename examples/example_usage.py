@@ -27,7 +27,7 @@ def analyze_email_file(email_path: str, output_path: str = None):
             
             # Print summary
             summary = result['summary']
-            print(f"\n=== ANALYSIS SUMMARY ===")
+            print("\n=== ANALYSIS SUMMARY ===")
             print(f"Total message layers: {summary['total_layers']}")
             print(f"Carrier emails detected: {len(summary['carrier_emails'])}")
             print(f"Total attachments: {summary['total_attachments']}")
@@ -36,12 +36,12 @@ def analyze_email_file(email_path: str, output_path: str = None):
             
             # Show carrier details
             if summary['carrier_emails']:
-                print(f"\n=== CARRIER EMAILS ===")
+                print("\n=== CARRIER EMAILS ===")
                 for carrier in summary['carrier_emails']:
                     print(f"Layer {carrier['layer']}: {carrier['vendor']}")
             
             # Show layer details
-            print(f"\n=== MESSAGE LAYERS ===")
+            print("\n=== MESSAGE LAYERS ===")
             for layer in result['message_layers']:
                 depth = layer['layer_depth']
                 subject = layer['headers']['subject']
@@ -54,7 +54,7 @@ def analyze_email_file(email_path: str, output_path: str = None):
                 
                 # Show attachment details
                 if layer['attachments']:
-                    print(f"  Attachment details:")
+                    print("  Attachment details:")
                     for att in layer['attachments']:
                         print(f"    - {att['filename']} ({att['size']} bytes)")
                         if att.get('is_suspicious_extension'):
@@ -65,7 +65,7 @@ def analyze_email_file(email_path: str, output_path: str = None):
                 
                 # Show URL details
                 if layer['urls']:
-                    print(f"  URL details:")
+                    print("  URL details:")
                     for url in layer['urls']:
                         print(f"    - {url['original_url']}")
                         if url.get('is_shortened'):

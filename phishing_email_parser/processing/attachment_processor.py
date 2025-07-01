@@ -7,7 +7,6 @@ Handles extraction, analysis, and text content extraction from email attachments
 import os
 import logging
 import hashlib
-import mimetypes
 from typing import List, Dict, Any, Optional
 from email.message import Message
 from pathlib import Path

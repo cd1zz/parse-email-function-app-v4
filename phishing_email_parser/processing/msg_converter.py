@@ -8,7 +8,7 @@ import os
 import logging
 import mimetypes
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import Tuple, List
 from email.message import EmailMessage
 
 logger = logging.getLogger(__name__)
