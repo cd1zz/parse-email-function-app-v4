@@ -391,9 +391,14 @@ class EmailParser:
                 if 'bit.ly' in content:
                     logger.debug(f"  *** Found bit.ly in this block! ***")
 
+                mime_type = content_block.get('mime_type')
+                text_to_add = content
+                if mime_type == 'text/html':
+                    text_to_add = self._clean_html(content)
+
                 self.all_text_content.append({
-                    'text': content,
-                    'source': f"{block_type}_{content_block.get('mime_type', 'unknown')}",
+                    'text': text_to_add,
+                    'source': f"{block_type}_{mime_type or 'unknown'}",
                     'block_type': block_type
                 })
                 logger.debug(f"  Total text blocks collected so far: {len(self.all_text_content)}")
@@ -1153,6 +1158,31 @@ class EmailParser:
         
         return [process_block(block) for block in content_blocks]
 
+    def _validate_html_cleaning(self, content_blocks: List[Dict[str, Any]]) -> None:
+        """Log a warning if any HTML content is missing text_only."""
+
+        def check_block(block, path="root"):
+            if not isinstance(block, dict):
+                return
+
+            if (
+                block.get('mime_type') == 'text/html'
+                and 'content' in block
+                and block.get('encoding') != 'base64'
+                and 'text_only' not in block
+            ):
+                logger.warning(f"HTML content missing text_only at {path}")
+
+            if 'nested_content' in block:
+                nested = block['nested_content']
+                if isinstance(nested, dict) and 'content' in nested:
+                    if isinstance(nested['content'], list):
+                        for i, nested_block in enumerate(nested['content']):
+                            check_block(nested_block, f"{path}.nested[{i}]")
+
+        for i, block in enumerate(content_blocks):
+            check_block(block, f"block[{i}]")
+
     def _truncate_content_for_brevity(self, content_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Truncate content fields in blocks for non-forensics mode while preserving structure.
         
@@ -1217,6 +1247,7 @@ class EmailParser:
         
         # CRITICAL: Ensure ALL HTML content at ANY depth has been cleaned
         sorted_blocks = self._ensure_html_cleaning_at_all_depths(sorted_blocks)
+        self._validate_html_cleaning(sorted_blocks)
         
         # Collect statistics
         type_counts = {}
@@ -1286,12 +1317,8 @@ class EmailParser:
                     if 'text_only' in block and block['text_only'].strip():
                         logger.debug(f"{'  ' * depth}    Adding cleaned HTML text ({len(block['text_only'])} chars)")
                         plain_text_parts.append(block['text_only'])
-                    elif 'content' in block and block.get('encoding') != 'base64':
-                        # Fallback: if text_only missing, clean the HTML content now
-                        logger.debug(f"{'  ' * depth}    No text_only found, cleaning HTML content directly")
-                        cleaned = self._clean_html(block['content'])
-                        if cleaned.strip():
-                            plain_text_parts.append(cleaned)
+                    else:
+                        logger.debug(f"{'  ' * depth}    HTML block missing text_only; skipping raw HTML")
                 
                 # For plain text content, use content directly
                 elif mime_type == 'text/plain':

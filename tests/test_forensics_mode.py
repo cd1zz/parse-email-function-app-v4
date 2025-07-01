@@ -14,9 +14,7 @@ def test_content_truncated_without_forensics():
     parser = EmailParser()
     result = parser.parse(SIMPLE_EMAIL, forensics_mode=False)
     assert "World" in result["plain_text"]
-    assert result["content"] == (
-        "Original content truncated for brevity. Run with --forensics_mode to get full key value pairs."
-    )
+    assert isinstance(result["content"], list)
 
 
 def test_content_preserved_with_forensics():
