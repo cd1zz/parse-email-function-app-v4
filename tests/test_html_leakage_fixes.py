@@ -59,8 +59,6 @@ Content-Type: text/html; charset=utf-8
     assert 'suspended' in plain_text.lower()
     assert 'verify' in plain_text.lower()
     print("✓ Core message content preserved")
-    
-    return True
 
 def test_nested_html_cleaning():
     """Test HTML cleaning in nested email structures."""
@@ -118,8 +116,6 @@ Content-Type: text/html; charset=utf-8
     urls_found = artifacts.get('statistics', {}).get('total_urls', 0)
     assert urls_found >= 2, f"Expected at least 2 URLs, found {urls_found}"
     print(f"✓ URLs extracted from nested content: {urls_found}")
-    
-    return True
 
 def test_mislabeled_html_content():
     """Test detection of HTML content with incorrect MIME type."""
@@ -162,8 +158,6 @@ Content-Type: text/plain; charset=utf-8
     urls_found = artifacts.get('statistics', {}).get('total_urls', 0)
     assert urls_found >= 1, f"Expected at least 1 URL, found {urls_found}"
     print(f"✓ URLs extracted: {urls_found}")
-    
-    return True
 
 def test_complex_nested_structure():
     """Test deeply nested email structure with mixed content types."""
@@ -237,8 +231,6 @@ Content-Type: text/html
     assert 'fetch(' not in plain_text
     assert 'display:none' not in plain_text
     print("✓ Malicious content removed from nested structure")
-    
-    return True
 
 def run_all_tests():
     """Run all HTML leakage tests."""

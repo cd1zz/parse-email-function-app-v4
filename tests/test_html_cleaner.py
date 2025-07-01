@@ -17,3 +17,14 @@ PhishingEmailHtmlCleaner = html_cleaner.PhishingEmailHtmlCleaner
 ])
 def test_unicode_cleaning(input_html, expected):
     assert PhishingEmailHtmlCleaner.clean_html(input_html) == expected
+
+
+def test_hidden_div_removed():
+    hidden_chars = "\u2007\u034f\u00ad" * 60
+    html = f'<div style="display:none">{hidden_chars}</div><p>Visible</p>'
+    assert PhishingEmailHtmlCleaner.clean_html(html) == "Visible"
+
+
+def test_combining_mark_removed():
+    html = "<p>A\u034fB</p>"
+    assert PhishingEmailHtmlCleaner.clean_html(html) == "AB"
