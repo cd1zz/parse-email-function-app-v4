@@ -97,25 +97,25 @@ class MSGConverter:
         if hasattr(msg, 'messageId') and msg.messageId:
             eml['Message-ID'] = msg.messageId
         
-        # Set body content
+        # Handle body content properly
         body_text = msg.body or ""
         html_body = getattr(msg, 'htmlBody', None)
         
+        # Convert HTML body to string if it's bytes
+        if html_body and isinstance(html_body, bytes):
+            html_body = html_body.decode('utf-8', errors='replace')
+        
+        # Set content based on what's available
         if html_body and body_text:
-            # Both HTML and text - create multipart
-            eml.set_content(body_text)
-            if isinstance(html_body, bytes):
-                html_body = html_body.decode('utf-8', errors='replace')
+            # Both HTML and text - create multipart/alternative
+            eml.set_content(body_text, subtype='plain')
             eml.add_alternative(html_body, subtype='html')
         elif html_body:
             # HTML only
-            if isinstance(html_body, bytes):
-                html_body = html_body.decode('utf-8', errors='replace')
-            eml.add_alternative(html_body, subtype='html')
-            eml.set_content("")  # Add empty text part
+            eml.set_content(html_body, subtype='html')
         else:
             # Text only or no body
-            eml.set_content(body_text)
+            eml.set_content(body_text, subtype='plain')
         
         # Add attachments
         if hasattr(msg, 'attachments') and msg.attachments:
