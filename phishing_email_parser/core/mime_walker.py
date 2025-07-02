@@ -8,6 +8,7 @@ Yields ``(depth, msg, vendor_tag)`` where *depth* == 0 for the outer
 """
 from __future__ import annotations
 import email
+from email import policy
 from email.message import Message
 from typing import Generator, Tuple, Optional
 
@@ -30,7 +31,7 @@ def _should_recurse(part: Message) -> bool:
         try:
             payload = part.get_payload(decode=True)
             if payload:
-                msg = email.message_from_bytes(payload)
+                msg = email.message_from_bytes(payload, policy=policy.default)
                 if msg.get("From") or msg.get("Subject"):
                     return True
         except Exception:
@@ -51,7 +52,9 @@ def walk_layers(root: Message) -> Generator[Tuple[int, Message, Optional[str]], 
         for p in msg.iter_attachments():
             if _should_recurse(p):
                 try:
-                    nested = email.message_from_bytes(p.get_payload(decode=True))
+                    nested = email.message_from_bytes(
+                        p.get_payload(decode=True), policy=policy.default
+                    )
                 except Exception:
                     # corruption or password‑protected zip; skip
                     continue
