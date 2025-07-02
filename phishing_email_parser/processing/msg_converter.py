@@ -7,11 +7,38 @@ Converts Microsoft Outlook .msg files to standard .eml format.
 import os
 import logging
 import mimetypes
+import re
+import base64
+import email
+from email import policy
 from pathlib import Path
 from typing import Tuple, List
 from email.message import EmailMessage
 
 logger = logging.getLogger(__name__)
+
+_INLINE_EML_RE = re.compile(
+    r'(?:^|\n)(Received:[^\n]+\n(?:[^\n]+\n)+?)'
+    r'([A-Za-z0-9+/=\r\n]{800,})',
+    re.DOTALL | re.IGNORECASE
+)
+
+
+def _pull_inline_emls(text: str):
+    """Detect base-64 forwarded e-mails and return cleaned text and messages."""
+    nested = []
+    for match in _INLINE_EML_RE.finditer(text):
+        b64 = match.group(2)
+        try:
+            msg = email.message_from_bytes(
+                base64.b64decode(b64, validate=True), policy=policy.default
+            )
+            if msg.get('From') or msg.get('Subject'):
+                nested.append(msg)
+                text = text.replace(match.group(0), '')
+        except Exception:
+            pass
+    return text, nested
 
 
 class MSGConverter:
@@ -98,6 +125,8 @@ class MSGConverter:
         body_text = msg.body or ""
         html_body = getattr(msg, 'htmlBody', None)
         nested_headers = {}
+
+        body_text, inline_emls = _pull_inline_emls(body_text)
         
         # Check if body_text looks like base64 encoded email (common issue with MSG files)
         if body_text and len(body_text) > 100:
@@ -238,10 +267,19 @@ class MSGConverter:
         elif html_body:
             # HTML only
             eml.set_content(html_body, subtype='html')
+
         else:
             # Text only or no body
-            eml.set_content(body_text, subtype='plain')
-        
+            eml.set_content(body_text or '(empty)', subtype='plain')
+
+        for idx, m in enumerate(inline_emls):
+            eml.add_attachment(
+                m.as_bytes(),
+                maintype='message',
+                subtype='rfc822',
+                filename=f'inline_{idx}.eml'
+            )
+
         # Add attachments AFTER setting content
         if hasattr(msg, 'attachments') and msg.attachments:
             for idx, attachment in enumerate(msg.attachments):
