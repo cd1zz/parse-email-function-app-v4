@@ -210,8 +210,15 @@ class PhishingEmailParser:
                 if content_type == "text/plain" and not part.get_filename():
                     plain_content = get_content_safe(part)
                     if plain_content:
-                        body_data["plain_text"] = plain_content
-                        body_data["has_plain"] = True
+                        if PhishingEmailHtmlCleaner.contains_html(plain_content):
+                            body_data["html_text"] = plain_content
+                            body_data["has_html"] = True
+                            body_data["converted_text"] = PhishingEmailHtmlCleaner.clean_html(
+                                plain_content, aggressive_cleaning=True
+                            )
+                        else:
+                            body_data["plain_text"] = plain_content
+                            body_data["has_plain"] = True
                 elif content_type == "text/html" and not part.get_filename():
                     html_content = get_content_safe(part)
                     if html_content:
@@ -226,8 +233,15 @@ class PhishingEmailParser:
             content = get_content_safe(msg)
             if content:
                 if content_type == "text/plain":
-                    body_data["plain_text"] = content
-                    body_data["has_plain"] = True
+                    if PhishingEmailHtmlCleaner.contains_html(content):
+                        body_data["html_text"] = content
+                        body_data["has_html"] = True
+                        body_data["converted_text"] = PhishingEmailHtmlCleaner.clean_html(
+                            content, aggressive_cleaning=True
+                        )
+                    else:
+                        body_data["plain_text"] = content
+                        body_data["has_plain"] = True
                 elif content_type == "text/html":
                     body_data["html_text"] = content
                     body_data["has_html"] = True
