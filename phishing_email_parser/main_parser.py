@@ -163,10 +163,13 @@ class PhishingEmailParser:
         urls = self._extract_all_urls(layer["body"], layer["attachments"], images)
         layer["urls"] = urls
 
-        # Truncate html_text to keep output concise
+        # Truncate html_text to keep output concise and mark truncation
         html_text = layer["body"].get("html_text")
         if html_text:
-            layer["body"]["html_text"] = html_text[:100]
+            truncated = html_text[:100]
+            if len(html_text) > 100:
+                truncated += "... [truncated]"
+            layer["body"]["html_text"] = truncated
 
         return layer
     
