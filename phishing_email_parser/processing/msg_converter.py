@@ -134,6 +134,10 @@ class MSGConverter:
                 f"attachment_{index}"
             )
             
+            # Strip null terminators and other problematic characters
+            if filename:
+                filename = filename.rstrip('\x00').strip()
+            
             data = getattr(attachment, 'data', None)
             if not data:
                 logger.warning(f"No data found for attachment {filename}")
@@ -171,6 +175,10 @@ class MSGConverter:
                     getattr(attachment, 'shortFilename', None) or
                     f"attachment_{idx}"
                 )
+                
+                # Strip null terminators and other problematic characters
+                if filename:
+                    filename = filename.rstrip('\x00').strip()
                 
                 data = getattr(attachment, 'data', None)
                 if not data:

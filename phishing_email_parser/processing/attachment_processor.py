@@ -75,6 +75,9 @@ class AttachmentProcessor:
         filename = part.get_filename()
         if not filename:
             filename = f"attachment_{index}"
+        else:
+            # Strip null terminators and other problematic characters
+            filename = filename.rstrip('\x00').strip()
             
         content_type = part.get_content_type()
         payload = part.get_payload(decode=True)

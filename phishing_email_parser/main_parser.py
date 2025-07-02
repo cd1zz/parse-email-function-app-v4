@@ -292,51 +292,56 @@ class PhishingEmailParser:
         return processed_urls
     
     def _extract_images_with_ocr(self, msg: Message, output_dir: str) -> List[Dict[str, Any]]:
-        """Extract images and perform OCR (from original script functionality)."""
-        images = []
-        image_idx = 1
-        
-        for part in msg.walk():
-            ctype = part.get_content_type()
-            if ctype.startswith("image/"):
-                content_id = part.get("Content-ID")
-                filename = part.get_filename() or f"image_{image_idx}.png"
-                out_path = os.path.join(output_dir, filename)
-                payload = part.get_payload(decode=True)
-                ocr_text = None
-                
-                if payload:
-                    # Save image to disk
-                    try:
-                        with open(out_path, "wb") as out:
-                            out.write(payload)
-                    except Exception as e:
-                        logger.warning(f"Error saving image {filename}: {e}")
-                        out_path = None
+            """Extract images and perform OCR (from original script functionality)."""
+            images = []
+            image_idx = 1
+            
+            for part in msg.walk():
+                ctype = part.get_content_type()
+                if ctype.startswith("image/"):
+                    content_id = part.get("Content-ID")
+                    filename = part.get_filename() or f"image_{image_idx}.png"
                     
-                    # Perform OCR
-                    try:
-                        img = Image.open(BytesIO(payload))
-                        img = img.convert('L')  # Convert to grayscale
-                        ocr_text = pytesseract.image_to_string(img)
-                        if ocr_text:
-                            ocr_text = ocr_text.strip()
-                    except Exception as e:
-                        logger.warning(f"Error performing OCR on {filename}: {e}")
-                        ocr_text = None
-                
-                images.append({
-                    "index": image_idx,
-                    "filename": filename,
-                    "disk_path": out_path,
-                    "content_id": content_id,
-                    "content_type": ctype,
-                    "ocr_text": ocr_text,
-                    "size": len(payload) if payload else 0
-                })
-                image_idx += 1
-        
-        return images
+                    # Strip null terminators and other problematic characters
+                    if filename:
+                        filename = filename.rstrip('\x00').strip()
+                        
+                    out_path = os.path.join(output_dir, filename)
+                    payload = part.get_payload(decode=True)
+                    ocr_text = None
+                    
+                    if payload:
+                        # Save image to disk
+                        try:
+                            with open(out_path, "wb") as out:
+                                out.write(payload)
+                        except Exception as e:
+                            logger.warning(f"Error saving image {filename}: {e}")
+                            out_path = None
+                        
+                        # Perform OCR
+                        try:
+                            img = Image.open(BytesIO(payload))
+                            img = img.convert('L')  # Convert to grayscale
+                            ocr_text = pytesseract.image_to_string(img)
+                            if ocr_text:
+                                ocr_text = ocr_text.strip()
+                        except Exception as e:
+                            logger.warning(f"Error performing OCR on {filename}: {e}")
+                            ocr_text = None
+                    
+                    images.append({
+                        "index": image_idx,
+                        "filename": filename,
+                        "disk_path": out_path,
+                        "content_id": content_id,
+                        "content_type": ctype,
+                        "ocr_text": ocr_text,
+                        "size": len(payload) if payload else 0
+                    })
+                    image_idx += 1
+            
+            return images
     
     def _extract_urls_from_text(self, text: str) -> List[str]:
         """Extract URLs from plain text."""
