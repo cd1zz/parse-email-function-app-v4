@@ -162,7 +162,12 @@ class PhishingEmailParser:
         # Extract URLs from body, attachments, and images
         urls = self._extract_all_urls(layer["body"], layer["attachments"], images)
         layer["urls"] = urls
-        
+
+        # Truncate html_text to keep output concise
+        html_text = layer["body"].get("html_text")
+        if html_text:
+            layer["body"]["html_text"] = html_text[:100]
+
         return layer
     
     def _extract_headers(self, msg: Message) -> Dict[str, Any]:
