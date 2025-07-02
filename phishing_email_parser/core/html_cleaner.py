@@ -69,6 +69,20 @@ class PhishingEmailHtmlCleaner:
         '\uFFA0',
     }
 
+    @classmethod
+    def contains_html(cls, text: str) -> bool:
+        """Heuristically determine if a string contains HTML tags."""
+        if not text or '<' not in text:
+            return False
+        # Quick regex check for any HTML-like tags
+        if re.search(r'<[^>]+>', text):
+            try:
+                soup = BeautifulSoup(text, "html.parser")
+                return bool(soup.find())
+            except Exception:
+                return False
+        return False
+
     CONTROL_CHAR_RANGES = [
         (0x0000, 0x001F),
         (0x007F, 0x009F),
