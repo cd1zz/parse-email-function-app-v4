@@ -207,7 +207,12 @@ class MSGConverter:
                     for key, value in header_dict.items():
                         clean_key = self._clean_header_value(key)
                         clean_value = self._clean_header_value(value)
-                        if clean_key and clean_value and clean_key.lower() not in ['subject', 'from', 'to', 'cc', 'bcc', 'date', 'message-id']:
+                        ignore_headers = [
+                            'subject', 'from', 'to', 'cc', 'bcc', 'date',
+                            'message-id', 'content-type', 'mime-version',
+                            'content-transfer-encoding'
+                        ]
+                        if clean_key and clean_value and clean_key.lower() not in ignore_headers:
                             eml[clean_key] = clean_value
         except Exception as e:
             logger.debug(f"Could not extract additional headers: {e}")
@@ -219,8 +224,8 @@ class MSGConverter:
                     clean_key = self._clean_header_value(key)
                     clean_value = self._clean_header_value(value)
                     if clean_key and clean_value:
-                        # Avoid overwriting already set headers
-                        if clean_key.lower() not in [h.lower() for h in eml.keys()]:
+                        # Avoid overwriting already set headers and ignore multipart indicators
+                        if clean_key.lower() not in [h.lower() for h in eml.keys()] and clean_key.lower() not in ['content-type', 'mime-version', 'content-transfer-encoding']:
                             eml[clean_key] = clean_value
         except Exception as e:
             logger.debug(f"Could not extract header dict: {e}")
