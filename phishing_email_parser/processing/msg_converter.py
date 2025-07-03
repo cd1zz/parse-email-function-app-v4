@@ -24,6 +24,35 @@ logger = logging.getLogger(__name__)
 # new, looser detector: any big block of base-64, try to decode it
 _BASE64_BLOB = re.compile(r'(?:^|\n)([A-Za-z0-9+/=\r\n]{800,})', re.DOTALL)
 
+# Inline MIME detector patterns
+_EMBEDDED_BOUNDARY = re.compile(r'^--[-A-Za-z0-9+_/=]{10,}', re.MULTILINE)
+_HEADER_BLOCK = re.compile(r'(Content-Type: .+?)(?:\r?\n\r?\n)', re.S)
+
+
+def _extract_inline_mime(text: str):
+    """Scan text for complete MIME sections and return any email parts found."""
+    out, emls = text, []
+    if not text or not _EMBEDDED_BOUNDARY.search(text):
+        return out, emls
+
+    for hdr, body in _HEADER_BLOCK.findall(text):
+        if 'Content-Disposition:' not in body:
+            continue
+        candidate = hdr + '\n\n' + body
+        try:
+            msg = email.message_from_string('From:x\n\n' + candidate,
+                                            policy=policy.default)
+        except Exception:
+            continue
+
+        for part in msg.walk():
+            fname = part.get_filename()
+            if fname and fname.lower().endswith('.eml'):
+                emls.append(msg)
+                out = out.replace(candidate, '')
+                break
+    return out, emls
+
 
 def _pull_inline_emls(text: str):
     """Detect & strip inline base-64 messages even when headers are encoded."""
@@ -310,7 +339,23 @@ class MSGConverter:
         html_body = getattr(msg, 'htmlBody', None)
         nested_headers = {}
 
-        body_text, inline_emls = _pull_inline_emls(body_text)
+        inline_emls: List[EmailMessage] = []
+
+        # First pass: look for inline MIME sections
+        if html_body:
+            html_body, found = _extract_inline_mime(html_body)
+            inline_emls.extend(found)
+        if body_text:
+            body_text, found = _extract_inline_mime(body_text)
+            inline_emls.extend(found)
+
+        # Fallback to base64 blob detection on the cleaned text
+        if body_text:
+            body_text, found = _pull_inline_emls(body_text)
+            inline_emls.extend(found)
+        if html_body:
+            html_body, found = _pull_inline_emls(html_body)
+            inline_emls.extend(found)
         
         # Clean body content
         if body_text:
