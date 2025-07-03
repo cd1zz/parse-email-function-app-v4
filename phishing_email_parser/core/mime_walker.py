@@ -11,28 +11,35 @@ import email
 from email import policy
 from email.message import Message
 from typing import Generator, Tuple, Optional
+import logging
 
 from .carrier_detector import is_carrier
 
 _nested_cts = {"message/rfc822", "application/vnd.ms‑outlook"}  # .msg OLE shell
+
+logger = logging.getLogger(__name__)
 
 
 def _should_recurse(part: Message) -> bool:
     ct = part.get_content_type().lower()
     fn = part.get_filename("") or ""
     if ct in _nested_cts:
+        logger.debug("Recurse into part due to content type %s", ct)
         return True
     if fn.lower().endswith((".eml", ".msg")):
+        logger.debug("Recurse into part due to filename %s", fn)
         return True
     if ct == "application/octet-stream":
         # Heuristic: if filename suggests email or content decodes to a valid email
         if fn.lower().endswith((".eml", ".msg")):
+            logger.debug("Recurse into octet-stream %s based on filename", fn)
             return True
         try:
             payload = part.get_payload(decode=True)
             if payload:
                 msg = email.message_from_bytes(payload, policy=policy.default)
                 if msg.get("From") or msg.get("Subject"):
+                    logger.debug("Recurse into octet-stream after email detection")
                     return True
         except Exception:
             pass
@@ -47,6 +54,7 @@ def walk_layers(root: Message) -> Generator[Tuple[int, Message, Optional[str]], 
     while stack:
         depth, msg = stack.pop()
         flag, vendor = is_carrier(msg)
+        logger.debug("Walking layer %d - carrier=%s", depth, vendor if flag else None)
         yield depth, msg, vendor if flag else None
 
         for p in msg.iter_attachments():
@@ -58,4 +66,5 @@ def walk_layers(root: Message) -> Generator[Tuple[int, Message, Optional[str]], 
                 except Exception:
                     # corruption or password‑protected zip; skip
                     continue
+                logger.debug("Nested email discovered at depth %d", depth + 1)
                 stack.append((depth + 1, nested))

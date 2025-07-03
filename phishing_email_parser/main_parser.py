@@ -154,14 +154,17 @@ class PhishingEmailParser:
         attachments = self.attachment_processor.process_attachments(msg, output_dir)
         if attachments:
             layer["attachments"] = attachments
+        logger.debug("Layer %d - %d attachments processed", depth, len(attachments))
         
         # Extract images with OCR
         images = self._extract_images_with_ocr(msg, output_dir)
         layer["images"] = images
+        logger.debug("Layer %d - %d images processed", depth, len(images))
         
         # Extract URLs from body, attachments, and images
         urls = self._extract_all_urls(layer["body"], layer["attachments"], images)
         layer["urls"] = urls
+        logger.debug("Layer %d - %d URLs extracted", depth, len(urls))
 
         # Truncate html_text to keep output concise and mark truncation
         html_text = layer["body"].get("html_text")
