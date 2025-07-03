@@ -45,11 +45,13 @@ class AttachmentProcessor:
         
     def process_attachments(self, msg: Message, output_dir: str) -> List[Dict[str, Any]]:
         """Process all attachments in an email message."""
+        logger.debug("Processing attachments to %s", output_dir)
         attachments = []
         attachment_idx = 1
         
         for part in msg.iter_attachments():
             try:
+                logger.debug("Handling attachment %d with content type %s", attachment_idx, part.get_content_type())
                 attachment_data = self._process_single_attachment(
                     part, attachment_idx, output_dir
                 )
@@ -66,10 +68,11 @@ class AttachmentProcessor:
                     "processed": False
                 })
                 attachment_idx += 1
-        
+
+        logger.debug("Finished processing attachments: %d found", len(attachments))
         return attachments
     
-    def _process_single_attachment(self, part: Message, index: int, 
+    def _process_single_attachment(self, part: Message, index: int,
                                  output_dir: str) -> Optional[Dict[str, Any]]:
         """Process a single email attachment."""
         filename = part.get_filename()
@@ -78,6 +81,8 @@ class AttachmentProcessor:
         else:
             # Strip null terminators and other problematic characters
             filename = filename.rstrip('\x00').strip()
+
+        logger.debug("Processing attachment %d: %s (%s)", index, filename, part.get_content_type())
             
         content_type = part.get_content_type()
         payload = part.get_payload(decode=True)
@@ -90,6 +95,7 @@ class AttachmentProcessor:
         try:
             with open(file_path, 'wb') as f:
                 f.write(payload)
+            logger.debug("Attachment %s written to %s", filename, file_path)
         except Exception as e:
             logger.error(f"Error saving attachment {filename}: {e}")
             file_path = None
@@ -128,7 +134,14 @@ class AttachmentProcessor:
             # The nested email will be handled by the main parser's walk_layers
         else:
             attachment_info["is_nested_email"] = False
-            
+
+        logger.debug(
+            "Attachment %s processed: size=%d, nested_email=%s",
+            filename,
+            file_size,
+            attachment_info["is_nested_email"],
+        )
+
         return attachment_info
     
     def _extract_text_from_attachment(self, payload: bytes, content_type: str, 

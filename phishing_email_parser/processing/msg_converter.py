@@ -27,17 +27,23 @@ _BASE64_BLOB = re.compile(r'(?:^|\n)([A-Za-z0-9+/=\r\n]{800,})', re.DOTALL)
 
 def _pull_inline_emls(text: str):
     """Detect & strip inline base-64 messages even when headers are encoded."""
+    logger.debug("Scanning body text for inline base64 emails: %d characters", len(text))
     nested = []
-    for m in _BASE64_BLOB.finditer(text):
+    for idx, m in enumerate(_BASE64_BLOB.finditer(text), start=1):
         blob = re.sub(r'\s+', '', m.group(1))  # trim newlines / spaces
+        logger.debug("Potential inline email block %d detected (%d bytes)", idx, len(blob))
         try:
             payload = base64.b64decode(blob, validate=True)
         except binascii.Error:
+            logger.debug("Block %d failed base64 validation", idx)
             continue  # not valid base-64
         msg = email.message_from_bytes(payload, policy=policy.default)
         if msg.get('From') or msg.get('Subject'):
             nested.append(msg)
+            logger.info("Inline email %d extracted (%d bytes)", idx, len(payload))
             text = text.replace(m.group(0), '')
+        else:
+            logger.debug("Block %d decoded but not recognised as email", idx)
     return text, nested
 
 
@@ -245,11 +251,13 @@ class MSGConverter:
         """
         if not self._extract_msg:
             raise RuntimeError("extract_msg library not available")
-            
+
         msg_path = Path(msg_path)
         if not msg_path.exists():
             raise FileNotFoundError(f"MSG file not found: {msg_path}")
-            
+
+        logger.debug("Converting MSG %s to EML in %s", msg_path, output_dir)
+
         # Create output directory
         os.makedirs(output_dir, exist_ok=True)
         
@@ -269,7 +277,8 @@ class MSGConverter:
                 f.write(eml.as_bytes())
                 
             # Extract attachments to output directory
-            self._extract_attachments(msg, output_dir)
+            extracted = self._extract_attachments(msg, output_dir)
+            logger.debug("Extracted %d attachments from MSG", len(extracted))
             
             logger.info(f"Converted {msg_path} to {eml_path}")
             return eml_path
@@ -294,6 +303,7 @@ class MSGConverter:
     def _create_eml_from_msg(self, msg, output_dir: str) -> EmailMessage:
         """Create an EmailMessage from a MSG object."""
         eml = EmailMessage()
+        logger.debug("Building EML from MSG: subject=%s", getattr(msg, 'subject', ''))
         
         # Handle body content first to detect nested emails
         body_text = msg.body or ""
@@ -369,6 +379,7 @@ class MSGConverter:
 
         # Add inline emails from basic base64 detection
         for idx, m in enumerate(inline_emls):
+            logger.debug("Attaching extracted inline email %d", idx)
             eml.add_attachment(
                 m.as_bytes(),
                 maintype='message',
@@ -379,6 +390,7 @@ class MSGConverter:
         # Add MIME-extracted attachments
         for attachment in mime_attachments:
             try:
+                logger.debug("Adding MIME attachment %s", attachment.get("filename"))
                 if attachment.get("disk_path") and os.path.exists(attachment["disk_path"]):
                     with open(attachment["disk_path"], 'rb') as f:
                         attachment_data = f.read()
@@ -406,8 +418,11 @@ class MSGConverter:
         if hasattr(msg, 'attachments') and msg.attachments:
             for idx, attachment in enumerate(msg.attachments):
                 self._add_attachment_to_eml(eml, attachment, idx)
-        
-        logger.info(f"Created EML with {len(mime_attachments)} MIME attachments and {len(inline_emls)} inline emails")
+        logger.info(
+            "Created EML with %d MIME attachments and %d inline emails",
+            len(mime_attachments),
+            len(inline_emls),
+        )
         return eml
     
     def _add_attachment_to_eml(self, eml: EmailMessage, attachment, index: int):
@@ -443,12 +458,14 @@ class MSGConverter:
                 subtype=subtype,
                 filename=filename
             )
+            logger.debug("Added MSG attachment %s to EML", filename)
             
         except Exception as e:
             logger.warning(f"Error adding attachment {index} to EML: {e}")
     
     def _extract_attachments(self, msg, output_dir: str) -> List[Tuple[str, str]]:
         """Extract attachments from MSG to disk."""
+        logger.debug("Extracting regular MSG attachments to %s", output_dir)
         attachment_paths = []
         
         if not hasattr(msg, 'attachments') or not msg.attachments:
@@ -474,9 +491,9 @@ class MSGConverter:
                 file_path = os.path.join(output_dir, filename)
                 with open(file_path, 'wb') as f:
                     f.write(data)
-                
+
                 attachment_paths.append((filename, file_path))
-                logger.debug(f"Extracted attachment: {filename}")
+                logger.debug("Saved MSG attachment %s to %s", filename, file_path)
                 
             except Exception as e:
                 logger.warning(f"Error extracting attachment {idx}: {e}")
