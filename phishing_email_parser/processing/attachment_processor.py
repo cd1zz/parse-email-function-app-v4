@@ -7,6 +7,8 @@ Handles extraction, analysis, and text content extraction from email attachments
 import os
 import logging
 import hashlib
+import email
+from email import policy
 from typing import List, Dict, Any, Optional
 from email.message import Message
 from pathlib import Path
@@ -51,7 +53,40 @@ class AttachmentProcessor:
         
         for part in msg.iter_attachments():
             try:
-                logger.debug("Handling attachment %d with content type %s", attachment_idx, part.get_content_type())
+                content_type = part.get_content_type()
+                logger.debug(
+                    "Handling attachment %d with content type %s",
+                    attachment_idx,
+                    content_type,
+                )
+
+                if content_type.startswith("message/"):
+                    nested_obj = (
+                        part.get_payload(0) if part.is_multipart() else part.get_payload()
+                    )
+                    if isinstance(nested_obj, email.message.Message):
+                        raw_bytes = nested_obj.as_bytes(policy=policy.default)
+                    else:
+                        raw_bytes = nested_obj
+
+                    filename = part.get_filename() or f"nested_{attachment_idx}.eml"
+                    disk_path = os.path.join(output_dir, filename)
+                    with open(disk_path, "wb") as fh:
+                        fh.write(raw_bytes)
+
+                    attachments.append(
+                        {
+                            "index": attachment_idx,
+                            "filename": filename,
+                            "content_type": content_type,
+                            "disk_path": disk_path,
+                            "size": len(raw_bytes),
+                            "is_nested_email": True,
+                        }
+                    )
+                    attachment_idx += 1
+                    continue
+
                 attachment_data = self._process_single_attachment(
                     part, attachment_idx, output_dir
                 )

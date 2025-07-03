@@ -22,7 +22,11 @@ from email.message import EmailMessage
 logger = logging.getLogger(__name__)
 
 # new, looser detector: any big block of base-64, try to decode it
-_BASE64_BLOB = re.compile(r'(?:^|\n)([A-Za-z0-9+/=\r\n]{800,})', re.DOTALL)
+# allow optional leading spaces or tabs on each line
+_BASE64_BLOB = re.compile(
+    r'(?:^|\n)[ \t]*([A-Za-z0-9+/=\r\n]{800,})',
+    re.DOTALL
+)
 
 # Inline MIME detector patterns
 _EMBEDDED_BOUNDARY = re.compile(r'^--[-A-Za-z0-9+_/=]{10,}', re.MULTILINE)
