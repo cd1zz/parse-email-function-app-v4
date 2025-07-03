@@ -1,7 +1,8 @@
 """
 MSG to EML converter for phishing email analysis.
 
-Converts Microsoft Outlook .msg files to standard .eml format.
+Converts Microsoft Outlook .msg files to standard .eml format with
+enhanced MIME attachment detection for embedded HTML content.
 """
 
 import os
@@ -10,9 +11,10 @@ import mimetypes
 import re
 import base64
 import email
+import html
 from email import policy
 from pathlib import Path
-from typing import Tuple, List
+from typing import Tuple, List, Optional, Dict, Any
 from email.message import EmailMessage
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,180 @@ def _pull_inline_emls(text: str):
         except Exception:
             pass
     return text, nested
+
+
+def extract_mime_attachments_from_html(html_content: str, output_dir: str) -> List[Dict[str, Any]]:
+    """
+    Extract MIME-structured attachments from HTML content.
+    
+    This handles cases where HTML contains embedded MIME structure with
+    proper boundaries, headers, and base64 content.
+    """
+    attachments = []
+    
+    if not html_content:
+        return attachments
+    
+    logger.debug(f"Analyzing HTML content of {len(html_content)} chars for MIME structure")
+    
+    # Look for MIME boundary patterns
+    boundary_pattern = re.compile(r'--([a-zA-Z0-9_\-]+)', re.MULTILINE)
+    boundaries = boundary_pattern.findall(html_content)
+    
+    if not boundaries:
+        logger.debug("No MIME boundaries found in HTML")
+        return attachments
+    
+    logger.debug(f"Found {len(set(boundaries))} unique MIME boundaries")
+    
+    # For each boundary, try to parse MIME parts
+    for boundary in set(boundaries):
+        try:
+            parts = extract_mime_parts_by_boundary(html_content, boundary, output_dir)
+            attachments.extend(parts)
+        except Exception as e:
+            logger.debug(f"Error processing boundary {boundary}: {e}")
+    
+    return attachments
+
+
+def extract_mime_parts_by_boundary(content: str, boundary: str, output_dir: str) -> List[Dict[str, Any]]:
+    """Extract MIME parts using a specific boundary."""
+    parts = []
+    
+    # Split content by boundary
+    boundary_marker = f"--{boundary}"
+    sections = content.split(boundary_marker)
+    
+    logger.debug(f"Boundary {boundary} splits content into {len(sections)} sections")
+    
+    for idx, section in enumerate(sections):
+        if not section.strip():
+            continue
+            
+        # Skip end markers
+        if section.strip() == "--":
+            continue
+        
+        try:
+            attachment_info = parse_mime_section(section, idx, output_dir, boundary)
+            if attachment_info:
+                parts.append(attachment_info)
+        except Exception as e:
+            logger.debug(f"Error parsing MIME section {idx}: {e}")
+    
+    return parts
+
+
+def parse_mime_section(section: str, section_idx: int, output_dir: str, boundary: str) -> Optional[Dict[str, Any]]:
+    """Parse a single MIME section and extract attachment if present."""
+    
+    # Look for Content-Type header
+    content_type_match = re.search(r'Content-Type:\s*([^;\r\n]+)', section, re.IGNORECASE)
+    if not content_type_match:
+        return None
+    
+    content_type = content_type_match.group(1).strip()
+    
+    # Look for filename
+    filename_match = re.search(r'(?:filename|name)=["\']?([^"\';\r\n]+)["\']?', section, re.IGNORECASE)
+    filename = filename_match.group(1).strip() if filename_match else f"mime_attachment_{boundary}_{section_idx}"
+    
+    # Look for Content-Transfer-Encoding
+    encoding_match = re.search(r'Content-Transfer-Encoding:\s*([^\r\n]+)', section, re.IGNORECASE)
+    encoding = encoding_match.group(1).strip() if encoding_match else None
+    
+    # Only process base64 encoded content for now
+    if not encoding or encoding.lower() != 'base64':
+        return None
+    
+    logger.debug(f"MIME section {section_idx}: {content_type}, filename={filename}, encoding={encoding}")
+    
+    # Extract the actual content (after headers)
+    # Find where headers end and base64 content starts
+    content_start = None
+    lines = section.split('\n')
+    
+    for i, line in enumerate(lines):
+        # Look for start of base64 content
+        if re.match(r'^[A-Za-z0-9+/=]{50,}', line.strip()):
+            content_start = i
+            break
+        # Or empty line after headers
+        elif line.strip() == "" and i + 1 < len(lines) and re.match(r'^[A-Za-z0-9+/=]{50,}', lines[i + 1].strip()):
+            content_start = i + 1
+            break
+    
+    if content_start is None:
+        logger.debug(f"Could not find content start in section {section_idx}")
+        return None
+    
+    # Extract content from that point
+    content_lines = lines[content_start:]
+    content_data = '\n'.join(content_lines).strip()
+    
+    # Remove any HTML tags that might be in the content
+    content_data = re.sub(r'<[^>]+>', '', content_data)
+    content_data = html.unescape(content_data)
+    
+    # Clean base64 content
+    clean_b64 = re.sub(r'[^A-Za-z0-9+/=]', '', content_data)
+    
+    # Ensure proper padding
+    while len(clean_b64) % 4:
+        clean_b64 += '='
+    
+    if len(clean_b64) < 100:  # Too short to be meaningful
+        return None
+    
+    try:
+        decoded_content = base64.b64decode(clean_b64, validate=True)
+        logger.info(f"Successfully decoded base64 content: {len(decoded_content)} bytes")
+    except Exception as e:
+        logger.warning(f"Failed to decode base64 content: {e}")
+        return None
+    
+    # Save to disk
+    os.makedirs(output_dir, exist_ok=True)
+    file_path = os.path.join(output_dir, filename)
+    
+    try:
+        with open(file_path, 'wb') as f:
+            f.write(decoded_content)
+        logger.info(f"Extracted MIME attachment: {filename} ({len(decoded_content)} bytes)")
+    except Exception as e:
+        logger.error(f"Failed to save attachment {filename}: {e}")
+        file_path = None
+    
+    attachment_info = {
+        "filename": filename,
+        "content_type": content_type,
+        "size": len(decoded_content),
+        "encoding": encoding,
+        "disk_path": file_path,
+        "is_mime_attachment": True,
+        "section_index": section_idx,
+        "boundary": boundary
+    }
+    
+    # If this looks like an email file, try to parse it
+    if (filename.lower().endswith('.eml') or 
+        content_type.lower().startswith('message/') or
+        decoded_content.startswith(b'Received:')):
+        
+        try:
+            # Parse as email message
+            email_msg = email.message_from_bytes(decoded_content, policy=policy.default)
+            if email_msg.get('From') or email_msg.get('Subject'):
+                attachment_info["is_email"] = True
+                attachment_info["email_subject"] = email_msg.get('Subject', 'No Subject')
+                attachment_info["email_from"] = email_msg.get('From', 'No From')
+                attachment_info["email_date"] = email_msg.get('Date', 'No Date')
+                logger.info(f"Extracted email attachment: {attachment_info['email_subject']}")
+        except Exception as e:
+            logger.debug(f"Could not parse as email: {e}")
+    
+    return attachment_info
 
 
 class MSGConverter:
@@ -88,7 +264,7 @@ class MSGConverter:
             msg = self._extract_msg.Message(str(msg_path))
             
             # Create EML message
-            eml = self._create_eml_from_msg(msg)
+            eml = self._create_eml_from_msg(msg, output_dir)
             
             # Save EML file
             with open(eml_path, 'wb') as f:
@@ -117,7 +293,7 @@ class MSGConverter:
             value = value.replace('\x00', '').replace('\r', '').replace('\n', ' ')
         return value
     
-    def _create_eml_from_msg(self, msg) -> EmailMessage:
+    def _create_eml_from_msg(self, msg, output_dir: str) -> EmailMessage:
         """Create an EmailMessage from a MSG object."""
         eml = EmailMessage()
         
@@ -128,56 +304,6 @@ class MSGConverter:
 
         body_text, inline_emls = _pull_inline_emls(body_text)
         
-        # Check if body_text looks like base64 encoded email (common issue with MSG files)
-        if body_text and len(body_text) > 100:
-            try:
-                import base64
-                import email
-                from email import policy
-                
-                # Try to decode as base64 and parse as email
-                if body_text.replace('\n', '').replace('\r', '').replace('=', '').isalnum() or '+' in body_text or '/' in body_text:
-                    try:
-                        decoded_bytes = base64.b64decode(body_text)
-                        nested_msg = email.message_from_bytes(decoded_bytes, policy=policy.default)
-                        
-                        # If successful, extract the actual body from the nested email
-                        if nested_msg.get('Subject') or nested_msg.get('From'):
-                            logger.info("Found nested email in MSG body, extracting content")
-                            
-                            # Get body from nested email
-                            if nested_msg.is_multipart():
-                                for part in nested_msg.walk():
-                                    if part.get_content_type() == "text/plain" and not part.get_filename():
-                                        body_text = part.get_content()
-                                        break
-                                    elif part.get_content_type() == "text/html" and not part.get_filename():
-                                        html_body = part.get_content()
-                            else:
-                                if nested_msg.get_content_type() == "text/plain":
-                                    body_text = nested_msg.get_content()
-                                elif nested_msg.get_content_type() == "text/html":
-                                    html_body = nested_msg.get_content()
-                                    
-                            # Store headers from nested email for later use
-                            if nested_msg.get('Date'):
-                                nested_headers['Date'] = nested_msg.get('Date')
-                            
-                            # Store received headers
-                            received_headers = nested_msg.get_all('Received')
-                            if received_headers:
-                                nested_headers['Received'] = received_headers
-                            
-                            # Store X-headers
-                            for key, value in nested_msg.items():
-                                if key.lower().startswith('x-'):
-                                    nested_headers[key] = value
-                                    
-                    except Exception as decode_error:
-                        logger.debug(f"Base64 decode attempt failed: {decode_error}")
-            except ImportError:
-                pass
-        
         # Clean body content
         if body_text:
             body_text = self._clean_header_value(body_text)
@@ -187,6 +313,19 @@ class MSGConverter:
             if isinstance(html_body, bytes):
                 html_body = html_body.decode('utf-8', errors='replace')
             html_body = self._clean_header_value(html_body)
+        
+        # ENHANCED: Extract MIME attachments from HTML body
+        mime_attachments = []
+        if html_body:
+            logger.info(f"Analyzing HTML body for MIME attachments ({len(html_body)} chars)")
+            mime_attachments = extract_mime_attachments_from_html(html_body, output_dir)
+            
+            # Clean HTML by removing MIME content for better readability
+            if mime_attachments:
+                # Remove MIME boundaries and large base64 blocks
+                cleaned_html = re.sub(r'--[a-zA-Z0-9_\-]+.*?(?=--[a-zA-Z0-9_\-]+|$)', '[MIME content extracted as attachment]', html_body, flags=re.DOTALL)
+                cleaned_html = re.sub(r'[A-Za-z0-9+/=\r\n\s]{200,}', '[Base64 content extracted]', cleaned_html)
+                html_body = cleaned_html
         
         # Set basic headers with cleaning BEFORE setting content
         if msg.subject:
@@ -218,47 +357,6 @@ class MSGConverter:
         if hasattr(msg, 'messageId') and msg.messageId:
             eml['Message-ID'] = self._clean_header_value(msg.messageId)
         
-        # Add received headers from nested email if available
-        if 'Received' in nested_headers:
-            for received in nested_headers['Received']:
-                eml['Received'] = received
-        
-        # Add X-headers from nested email
-        for key, value in nested_headers.items():
-            if key.lower().startswith('x-') and key not in eml:
-                eml[key] = value
-        
-        # Try to extract additional headers from the raw header data
-        try:
-            if hasattr(msg, 'header') and msg.header:
-                header_dict = msg.header
-                if isinstance(header_dict, dict):
-                    for key, value in header_dict.items():
-                        clean_key = self._clean_header_value(key)
-                        clean_value = self._clean_header_value(value)
-                        ignore_headers = [
-                            'subject', 'from', 'to', 'cc', 'bcc', 'date',
-                            'message-id', 'content-type', 'mime-version',
-                            'content-transfer-encoding'
-                        ]
-                        if clean_key and clean_value and clean_key.lower() not in ignore_headers:
-                            eml[clean_key] = clean_value
-        except Exception as e:
-            logger.debug(f"Could not extract additional headers: {e}")
-        
-        # Try to get raw header string and parse additional headers
-        try:
-            if hasattr(msg, 'headerDict') and msg.headerDict:
-                for key, value in msg.headerDict.items():
-                    clean_key = self._clean_header_value(key)
-                    clean_value = self._clean_header_value(value)
-                    if clean_key and clean_value:
-                        # Avoid overwriting already set headers and ignore multipart indicators
-                        if clean_key.lower() not in [h.lower() for h in eml.keys()] and clean_key.lower() not in ['content-type', 'mime-version', 'content-transfer-encoding']:
-                            eml[clean_key] = clean_value
-        except Exception as e:
-            logger.debug(f"Could not extract header dict: {e}")
-        
         # Set content based on what's available - MUST DO THIS BEFORE ADDING ATTACHMENTS
         if html_body and body_text:
             # Both HTML and text - create multipart/alternative
@@ -267,11 +365,11 @@ class MSGConverter:
         elif html_body:
             # HTML only
             eml.set_content(html_body, subtype='html')
-
         else:
             # Text only or no body
             eml.set_content(body_text or '(empty)', subtype='plain')
 
+        # Add inline emails from basic base64 detection
         for idx, m in enumerate(inline_emls):
             eml.add_attachment(
                 m.as_bytes(),
@@ -279,12 +377,39 @@ class MSGConverter:
                 subtype='rfc822',
                 filename=f'inline_{idx}.eml'
             )
+        
+        # Add MIME-extracted attachments
+        for attachment in mime_attachments:
+            try:
+                if attachment.get("disk_path") and os.path.exists(attachment["disk_path"]):
+                    with open(attachment["disk_path"], 'rb') as f:
+                        attachment_data = f.read()
+                    
+                    # Determine maintype and subtype
+                    content_type = attachment.get("content_type", "application/octet-stream")
+                    if '/' in content_type:
+                        maintype, subtype = content_type.split('/', 1)
+                    else:
+                        maintype, subtype = "application", "octet-stream"
+                    
+                    eml.add_attachment(
+                        attachment_data,
+                        maintype=maintype,
+                        subtype=subtype,
+                        filename=attachment["filename"]
+                    )
+                    
+                    logger.info(f"Added MIME attachment to EML: {attachment['filename']}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to add MIME attachment {attachment.get('filename', 'unknown')}: {e}")
 
-        # Add attachments AFTER setting content
+        # Add regular attachments AFTER setting content
         if hasattr(msg, 'attachments') and msg.attachments:
             for idx, attachment in enumerate(msg.attachments):
                 self._add_attachment_to_eml(eml, attachment, idx)
         
+        logger.info(f"Created EML with {len(mime_attachments)} MIME attachments and {len(inline_emls)} inline emails")
         return eml
     
     def _add_attachment_to_eml(self, eml: EmailMessage, attachment, index: int):
