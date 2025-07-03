@@ -1,70 +1,53 @@
 # =============================================================
 # mime_walker.py
 # =============================================================
-"""Depth‑first traversal of nested ``message/rfc822`` / *.eml* / *.msg* parts.
+"""Depth-first traversal of nested ``message/rfc822`` parts.
 
-Yields ``(depth, msg, vendor_tag)`` where *depth* == 0 for the outer
- message and *vendor_tag* is ``None`` unless :pyfunc:`is_carrier` matched.
+This module provides :func:`walk_layers` which yields ``(depth, msg, vendor_tag)``
+for every message layer.  The top level has ``depth`` 0.  ``vendor_tag`` is
+``None`` unless :func:`detect_vendor` matched the message.
 """
 from __future__ import annotations
-import email
+
 from email import policy
 from email.message import Message
-from typing import Generator, Tuple, Optional
+from email.parser import BytesParser
+from typing import Generator, Optional, Tuple
 import logging
 
-from .carrier_detector import is_carrier
+from .carrier_detector import detect_vendor
 
-_nested_cts = {"message/rfc822", "application/vnd.ms‑outlook"}  # .msg OLE shell
-
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
-def _should_recurse(part: Message) -> bool:
-    ct = part.get_content_type().lower()
-    fn = part.get_filename("") or ""
-    if ct in _nested_cts:
-        logger.debug("Recurse into part due to content type %s", ct)
-        return True
-    if fn.lower().endswith((".eml", ".msg")):
-        logger.debug("Recurse into part due to filename %s", fn)
-        return True
-    if ct == "application/octet-stream":
-        # Heuristic: if filename suggests email or content decodes to a valid email
-        if fn.lower().endswith((".eml", ".msg")):
-            logger.debug("Recurse into octet-stream %s based on filename", fn)
-            return True
+def _as_message(payload) -> Message | None:
+    """Return a :class:`Message` from ``payload`` if possible."""
+    if isinstance(payload, Message):
+        return payload
+    # ``message/rfc822`` parts created by the stdlib are often a single-item list
+    if isinstance(payload, list) and payload and isinstance(payload[0], Message):
+        return payload[0]
+    if isinstance(payload, (bytes, bytearray)):
         try:
-            payload = part.get_payload(decode=True)
-            if payload:
-                msg = email.message_from_bytes(payload, policy=policy.default)
-                if msg.get("From") or msg.get("Subject"):
-                    logger.debug("Recurse into octet-stream after email detection")
-                    return True
-        except Exception:
-            pass
-    return False
+            return BytesParser(policy=policy.default).parsebytes(payload)
+        except Exception as exc:  # malformed content – just skip
+            log.debug("unable to parse nested rfc822 bytes: %s", exc)
+    return None
 
 
+def walk_layers(msg: Message, depth: int = 0) -> Generator[Tuple[int, Message, Optional[str]], None, None]:
+    """Yield ``(depth, Message, vendor_tag)`` for every layer."""
+    vendor_tag = detect_vendor(msg)
+    yield depth, msg, vendor_tag
 
-def walk_layers(root: Message) -> Generator[Tuple[int, Message, Optional[str]], None, None]:
-    """Yield *(depth, msg, vendor_tag)* for each nested message."""
-    stack: list[tuple[int, Message]] = [(0, root)]
-
-    while stack:
-        depth, msg = stack.pop()
-        flag, vendor = is_carrier(msg)
-        logger.debug("Walking layer %d - carrier=%s", depth, vendor if flag else None)
-        yield depth, msg, vendor if flag else None
-
-        for p in msg.iter_attachments():
-            if _should_recurse(p):
-                try:
-                    nested = email.message_from_bytes(
-                        p.get_payload(decode=True), policy=policy.default
-                    )
-                except Exception:
-                    # corruption or password‑protected zip; skip
-                    continue
-                logger.debug("Nested email discovered at depth %d", depth + 1)
-                stack.append((depth + 1, nested))
+    for part in msg.walk():
+        if part.get_content_type() != "message/rfc822":
+            continue
+        nested = _as_message(part.get_payload(decode=True) or part.get_payload())
+        if nested is None:
+            continue
+        log.debug(
+            "Recurse into part due to content type message/rfc822 (depth %d)",
+            depth + 1,
+        )
+        yield from walk_layers(nested, depth + 1)
