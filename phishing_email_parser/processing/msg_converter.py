@@ -9,6 +9,8 @@ import logging
 import mimetypes
 import re
 import base64
+import binascii
+import textwrap
 import email
 from email import policy
 from pathlib import Path
@@ -17,27 +19,23 @@ from email.message import EmailMessage
 
 logger = logging.getLogger(__name__)
 
-_INLINE_EML_RE = re.compile(
-    r'(?:^|\n)(Received:[^\n]+\n(?:[^\n]+\n)+?)'
-    r'([A-Za-z0-9+/=\r\n]{800,})',
-    re.DOTALL | re.IGNORECASE
-)
+# new, looser detector: any big block of base-64, try to decode it
+_BASE64_BLOB = re.compile(r'(?:^|\n)([A-Za-z0-9+/=\r\n]{800,})', re.DOTALL)
 
 
 def _pull_inline_emls(text: str):
-    """Detect base-64 forwarded e-mails and return cleaned text and messages."""
+    """Detect & strip inline base-64 messages even when headers are encoded."""
     nested = []
-    for match in _INLINE_EML_RE.finditer(text):
-        b64 = match.group(2)
+    for m in _BASE64_BLOB.finditer(text):
+        blob = re.sub(r'\s+', '', m.group(1))  # trim newlines / spaces
         try:
-            msg = email.message_from_bytes(
-                base64.b64decode(b64, validate=True), policy=policy.default
-            )
-            if msg.get('From') or msg.get('Subject'):
-                nested.append(msg)
-                text = text.replace(match.group(0), '')
-        except Exception:
-            pass
+            payload = base64.b64decode(blob, validate=True)
+        except binascii.Error:
+            continue  # not valid base-64
+        msg = email.message_from_bytes(payload, policy=policy.default)
+        if msg.get('From') or msg.get('Subject'):
+            nested.append(msg)
+            text = text.replace(m.group(0), '')
     return text, nested
 
 
