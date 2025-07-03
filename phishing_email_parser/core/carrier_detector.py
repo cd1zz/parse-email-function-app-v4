@@ -35,3 +35,9 @@ def is_carrier(msg: Message) -> Tuple[bool, Optional[str]]:  # noqa: D401 – no
         if re.search(pat_subj, subj, _re_flags) or re.search(pat_hdr, hdr_blob, _re_flags):
             return True, vendor
     return False, None
+
+
+def detect_vendor(msg: Message) -> Optional[str]:
+    """Return vendor tag if *msg* is a carrier email, otherwise ``None``."""
+    flag, vendor = is_carrier(msg)
+    return vendor if flag else None
