@@ -337,6 +337,12 @@ class MSGConverter:
         # Handle body content first to detect nested emails
         body_text = msg.body or ""
         html_body = getattr(msg, 'htmlBody', None)
+
+        # Ensure body values are strings for regex processing
+        if isinstance(body_text, bytes):
+            body_text = body_text.decode('utf-8', errors='replace')
+        if isinstance(html_body, bytes):
+            html_body = html_body.decode('utf-8', errors='replace')
         nested_headers = {}
 
         inline_emls: List[EmailMessage] = []
