@@ -11,6 +11,7 @@ import sys
 import os
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from email import policy
@@ -225,6 +226,11 @@ class PhishingEmailParser:
                         else:
                             body_data["plain_text"] = plain_content
                             body_data["has_plain"] = True
+                            if (
+                                len(body_data["plain_text"]) > 800
+                                and re.fullmatch(r"[A-Za-z0-9+/=\s]{800,}", body_data["plain_text"])
+                            ):
+                                body_data["plain_text"] = ""
                 elif content_type == "text/html" and not part.get_filename():
                     html_content = get_content_safe(part)
                     if html_content:
@@ -248,6 +254,11 @@ class PhishingEmailParser:
                     else:
                         body_data["plain_text"] = content
                         body_data["has_plain"] = True
+                        if (
+                            len(body_data["plain_text"]) > 800
+                            and re.fullmatch(r"[A-Za-z0-9+/=\s]{800,}", body_data["plain_text"])
+                        ):
+                            body_data["plain_text"] = ""
                 elif content_type == "text/html":
                     body_data["html_text"] = content
                     body_data["has_html"] = True
