@@ -483,42 +483,81 @@ class MSGConverter:
         return eml
     
     def _add_attachment_to_eml(self, eml: EmailMessage, attachment, index: int):
-        """Add an attachment to the EML message."""
+            """Add an attachment to the EML message with proper nested email handling."""
+            try:
+                # Get attachment data
+                filename = (
+                    getattr(attachment, 'longFilename', None) or
+                    getattr(attachment, 'shortFilename', None) or
+                    f"attachment_{index}"
+                )
+                
+                # Strip null terminators and other problematic characters
+                if filename:
+                    filename = self._clean_header_value(filename)
+                
+                data = getattr(attachment, 'data', None)
+                if not data:
+                    logger.warning(f"No data found for attachment {filename}")
+                    return
+                
+                # **KEY FIX**: Properly handle .eml files and nested emails
+                if (filename.lower().endswith('.eml') or 
+                    self._is_email_content(data)):
+                    # This is a nested email - use message/rfc822 content type
+                    logger.debug(f"Detected nested email attachment: {filename}")
+                    eml.add_attachment(
+                        data,
+                        maintype='message',
+                        subtype='rfc822',
+                        filename=filename
+                    )
+                    logger.debug("Added nested email attachment %s to EML", filename)
+                    return
+                
+                # Guess MIME type for regular attachments
+                mime_type, _ = mimetypes.guess_type(filename)
+                if not mime_type:
+                    mime_type = 'application/octet-stream'
+                
+                maintype, subtype = mime_type.split('/', 1)
+                
+                # Add attachment
+                eml.add_attachment(
+                    data,
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=filename
+                )
+                logger.debug("Added MSG attachment %s to EML", filename)
+                
+            except Exception as e:
+                logger.warning(f"Error adding attachment {index} to EML: {e}")
+
+    def _is_email_content(self, data: bytes) -> bool:
+        """Check if the data looks like email content."""
         try:
-            # Get attachment data
-            filename = (
-                getattr(attachment, 'longFilename', None) or
-                getattr(attachment, 'shortFilename', None) or
-                f"attachment_{index}"
-            )
+            # Try to decode as text and look for email headers
+            if isinstance(data, bytes):
+                text_data = data.decode('utf-8', errors='replace')[:1000]  # Check first 1000 chars
+            else:
+                text_data = str(data)[:1000]
             
-            # Strip null terminators and other problematic characters
-            if filename:
-                filename = self._clean_header_value(filename)
+            # Look for common email headers
+            email_indicators = [
+                'From:', 'To:', 'Subject:', 'Date:', 'Message-ID:', 
+                'Received:', 'Return-Path:', 'X-Mailer:', 'MIME-Version:'
+            ]
             
-            data = getattr(attachment, 'data', None)
-            if not data:
-                logger.warning(f"No data found for attachment {filename}")
-                return
+            found_headers = sum(1 for indicator in email_indicators if indicator in text_data)
             
-            # Guess MIME type
-            mime_type, _ = mimetypes.guess_type(filename)
-            if not mime_type:
-                mime_type = 'application/octet-stream'
+            # If we find at least 2 email headers, it's likely an email
+            return found_headers >= 2
             
-            maintype, subtype = mime_type.split('/', 1)
-            
-            # Add attachment
-            eml.add_attachment(
-                data,
-                maintype=maintype,
-                subtype=subtype,
-                filename=filename
-            )
-            logger.debug("Added MSG attachment %s to EML", filename)
-            
-        except Exception as e:
-            logger.warning(f"Error adding attachment {index} to EML: {e}")
+        except Exception:
+            return False
+
+
     
     def _extract_attachments(self, msg, output_dir: str) -> List[Tuple[str, str]]:
         """Extract attachments from MSG to disk."""
