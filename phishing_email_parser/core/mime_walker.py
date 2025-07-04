@@ -60,9 +60,24 @@ def walk_layers(msg: Message, depth: int = 0) -> Generator[Tuple[int, Message, O
     for part in msg.walk():
         if part.get_content_type() != "message/rfc822":
             continue
-        nested = _as_message(part.get_payload(decode=True) or part.get_payload())
+
+        # raw bytes or Message object
+        payload = part.get_payload(decode=True) or part.get_payload()
+
+        # ── TEMP DEBUG: dump first 120 bytes ───────────────────────
+        if isinstance(payload, (bytes, bytearray)):
+            log.debug(
+                "↓↓ first 120 bytes of nested payload ↓↓\n%s",
+                (payload[:120])
+                .replace(b"\r", b"\\r")
+                .replace(b"\n", b"\\n")
+            )
+        # ───────────────────────────────────────────────────────────
+
+        nested = _as_message(payload)
         if nested is None:
             continue
+
         log.debug(
             "Recurse into part due to content type message/rfc822 (depth %d)",
             depth + 1,
