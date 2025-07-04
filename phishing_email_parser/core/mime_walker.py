@@ -40,14 +40,14 @@ def _as_message(payload) -> Message | None:
     if msg and msg.keys():
         return msg
 
-    # ── fallback: Outlook left-pads every header with one space ──
-    #   Remove a single leading SP or TAB from each line *until* the blank line.
-    try:
-        head, body = payload.split(b"\r\n\r\n", 1)
-    except ValueError:
+    # ── fallback: Outlook / OWA sometimes left-pads every header ──
+    m = re.search(rb"\r?\n\r?\n", payload)
+    if not m:
         return msg
+    head, body = payload[:m.start()], payload[m.end():]
 
-    cleaned = re.sub(rb"^[ \t](?=\S)", b"", head, flags=re.MULTILINE) + b"\r\n\r\n" + body
+    cleaned = re.sub(rb"(?m)^[ \t]+(?=\S)", b"", head)
+    cleaned += b"\r\n\r\n" + body
     msg2 = _parse_bytes(cleaned)
     return msg2 if msg2 and msg2.keys() else msg
 
