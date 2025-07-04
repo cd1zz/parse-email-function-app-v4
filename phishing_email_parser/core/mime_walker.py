@@ -40,6 +40,18 @@ def _as_message(payload) -> Message | None:
     if msg and msg.keys():
         return msg
 
+    # ── auto-decode if payload is STILL base-64 (double-encoded nested mail) ──
+    import base64, re
+    if re.fullmatch(rb'[A-Za-z0-9+/=\r\n]{800,}', payload):    # looks like b64
+        try:
+            decoded = base64.b64decode(payload, validate=False)
+            msg2 = _parse_bytes(decoded)
+            if msg2 and msg2.keys():          # success after 2nd decode
+                return msg2
+            payload = decoded                 # fall through to indent-strip
+        except Exception:
+            pass
+
     # ── fallback: Outlook / OWA sometimes left-pads every header ──
     m = re.search(rb"\r?\n\r?\n", payload)
     if not m:
