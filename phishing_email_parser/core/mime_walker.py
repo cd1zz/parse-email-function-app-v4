@@ -13,26 +13,43 @@ from email import policy
 from email.message import Message
 from email.parser import BytesParser
 from typing import Generator, Optional, Tuple
-import logging
+import logging, re
 
 from .carrier_detector import detect_vendor
 
 log = logging.getLogger(__name__)
 
 
+def _parse_bytes(b: bytes) -> Message | None:
+    try:
+        return BytesParser(policy=policy.default).parsebytes(b)
+    except Exception as exc:  # truly malformed
+        log.debug("parsebytes failed: %s", exc)
+        return None
+
+
 def _as_message(payload) -> Message | None:
-    """Return a :class:`Message` from ``payload`` if possible."""
     if isinstance(payload, Message):
         return payload
-    # ``message/rfc822`` parts created by the stdlib are often a single-item list
     if isinstance(payload, list) and payload and isinstance(payload[0], Message):
         return payload[0]
-    if isinstance(payload, (bytes, bytearray)):
-        try:
-            return BytesParser(policy=policy.default).parsebytes(payload)
-        except Exception as exc:  # malformed content – just skip
-            log.debug("unable to parse nested rfc822 bytes: %s", exc)
-    return None
+    if not isinstance(payload, (bytes, bytearray)):
+        return None
+
+    msg = _parse_bytes(payload)
+    if msg and msg.keys():
+        return msg
+
+    # ── fallback: Outlook left-pads every header with one space ──
+    #   Remove a single leading SP or TAB from each line *until* the blank line.
+    try:
+        head, body = payload.split(b"\r\n\r\n", 1)
+    except ValueError:
+        return msg
+
+    cleaned = re.sub(rb"^[ \t](?=\S)", b"", head, flags=re.MULTILINE) + b"\r\n\r\n" + body
+    msg2 = _parse_bytes(cleaned)
+    return msg2 if msg2 and msg2.keys() else msg
 
 
 def walk_layers(msg: Message, depth: int = 0) -> Generator[Tuple[int, Message, Optional[str]], None, None]:
