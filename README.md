@@ -174,6 +174,15 @@ with PhishingEmailParser() as parser:
         body_text = layer['body']['final_text']
         urls = layer['urls']
         attachments = layer['attachments']
+
+# Custom configuration example
+from phishing_email_parser import ParserConfig
+
+config = ParserConfig(
+    suspicious_extensions=(".exe", ".zip"),
+)
+with PhishingEmailParser(config=config) as parser:
+    parser.parse_email_file("phishing.eml")
 ```
 
 ### Core Components Usage
@@ -313,6 +322,7 @@ phishing_email_parser/
 - **`AttachmentProcessor`**: Attachment handling and text extraction
 - **`MSGConverter`**: Microsoft Outlook MSG file conversion
 - **`UrlProcessor`**: URL extraction, expansion, and deduplication
+- **`ParserConfig`**: Optional configuration object to customise parser behaviour
 
 ## Security Considerations
 
