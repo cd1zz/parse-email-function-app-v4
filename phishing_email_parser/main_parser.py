@@ -721,22 +721,32 @@ class PhishingEmailParser:
             raise
 
     def _update_summary_counts(self, result: Dict[str, Any]):
-        """Update summary counts after deduplication."""
-        all_urls = []
-        total_attachments = 0
-        total_images = 0
-        
-        for layer in result["message_layers"]:
-            if "urls" in layer:
-                all_urls.extend(layer["urls"])
-            if "attachments" in layer:
-                total_attachments += len(layer["attachments"])
-            if "images" in layer:
-                total_images += len(layer["images"])
-        
-        result["summary"]["total_urls"] = len(all_urls)
-        result["summary"]["total_attachments"] = total_attachments
-        result["summary"]["total_images"] = total_images
+            """Update summary counts after deduplication."""
+            all_urls = []
+            total_attachments = 0
+            total_images = 0
+            total_embedded_images = 0
+            
+            for layer in result["message_layers"]:
+                if "urls" in layer:
+                    all_urls.extend(layer["urls"])
+                if "attachments" in layer:
+                    total_attachments += len(layer["attachments"])
+                    # Count embedded images from Excel files
+                    for attachment in layer["attachments"]:
+                        if "embedded_images" in attachment:
+                            total_embedded_images += len(attachment["embedded_images"])
+                if "images" in layer:
+                    total_images += len(layer["images"])
+            
+            result["summary"]["total_urls"] = len(all_urls)
+            result["summary"]["total_attachments"] = total_attachments
+            result["summary"]["total_images"] = total_images
+            result["summary"]["total_embedded_images"] = total_embedded_images
+            
+            # Log embedded image extraction results
+            if total_embedded_images > 0:
+                logger.info(f"Found {total_embedded_images} embedded images in Excel attachments")
 
     def _log_layer_processing(self, layer_data: Dict[str, Any]):
         """Log layer processing details for debugging."""

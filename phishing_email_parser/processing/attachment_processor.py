@@ -2,6 +2,7 @@
 Email attachment processor for phishing analysis.
 
 Handles extraction, analysis, and text content extraction from email attachments.
+Enhanced with Excel image extraction and OCR capabilities.
 """
 
 import email
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .pdf_utils import extract_text_from_pdf
-from .excel_utils import extract_text_from_excel
+from .excel_utils import extract_text_from_excel, extract_excel_with_images
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,7 @@ class AttachmentProcessor:
         attachment_info = {
             "index": index,
             "filename": filename,
-            "content_type": content_type,  # Now cleaned of null bytes
+            "content_type": content_type,
             "size": file_size,
             "sha256": file_hash,
             "extension": file_extension,
@@ -157,17 +158,49 @@ class AttachmentProcessor:
             "is_suspicious_extension": file_extension in self.SUSPICIOUS_EXTENSIONS,
             "text_content": None,
             "urls": [],
-            "processed": True
+            "processed": True,
+            "embedded_images": []  # NEW: Track images extracted from this attachment
         }
         
-        # Extract text content if possible
+        # Extract text content and images if possible
         if content_type in self.TEXT_EXTRACTABLE_TYPES:
-            text_content = self._extract_text_from_attachment(payload, content_type, filename)
-            if text_content:
+            # ENHANCED: Use new Excel processing for Excel files
+            if content_type in [
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ]:
+                text_content, extracted_images = self._extract_from_excel_with_images(
+                    payload, filename, output_dir
+                )
                 attachment_info["text_content"] = text_content
-                # Extract URLs from text content
-                urls = self._extract_urls_from_text(text_content)
-                attachment_info["urls"] = urls
+                attachment_info["embedded_images"] = extracted_images
+                
+                # Collect URLs from text content and extracted images
+                if text_content:
+                    attachment_info["urls"].extend(self._extract_urls_from_text(text_content))
+                
+                # Add URLs from embedded images
+                for img in extracted_images:
+                    if img.get("urls_from_ocr"):
+                        attachment_info["urls"].extend(img["urls_from_ocr"])
+                    if img.get("hyperlinks"):
+                        attachment_info["urls"].extend(img["hyperlinks"])
+                
+                # Log image extraction results
+                if extracted_images:
+                    logger.info(f"Extracted {len(extracted_images)} images from Excel file {filename}")
+                    
+            else:
+                # Use standard text extraction for other file types
+                text_content = self._extract_text_from_attachment(payload, content_type, filename)
+                if text_content:
+                    attachment_info["text_content"] = text_content
+                    # Extract URLs from text content
+                    urls = self._extract_urls_from_text(text_content)
+                    attachment_info["urls"] = urls
+        
+        # Remove duplicate URLs
+        attachment_info["urls"] = list(set(attachment_info["urls"]))
         
         # ENHANCED: Detect nested emails using multiple criteria
         # BUT exclude message/rfc822 since those are handled by walk_layers
@@ -182,14 +215,42 @@ class AttachmentProcessor:
             logger.info(f"Detected attachment-based nested email: {filename} (content_type: {content_type})")
 
         logger.debug(
-            "Attachment %s processed: size=%d, nested_email=%s, content_type=%s",
+            "Attachment %s processed: size=%d, nested_email=%s, content_type=%s, images=%d",
             filename,
             file_size,
             is_nested_email,
-            content_type
+            content_type,
+            len(attachment_info["embedded_images"])
         )
 
         return attachment_info
+    
+    def _extract_from_excel_with_images(self, payload: bytes, filename: str, 
+                                      output_dir: str) -> tuple[Optional[str], List[Dict]]:
+        """Extract text and images from Excel files."""
+        try:
+            logger.debug(f"Extracting text and images from Excel file: {filename}")
+            
+            # Create subdirectory for this Excel file's images
+            excel_image_dir = os.path.join(output_dir, f"{Path(filename).stem}_images")
+            os.makedirs(excel_image_dir, exist_ok=True)
+            
+            # Use enhanced extraction
+            text_content, extracted_images = extract_excel_with_images(payload, excel_image_dir)
+            
+            logger.debug(f"Excel extraction results: {len(text_content) if text_content else 0} chars text, {len(extracted_images)} images")
+            
+            return text_content, extracted_images
+            
+        except Exception as e:
+            logger.warning(f"Error extracting from Excel file {filename}: {e}")
+            # Fallback to basic text extraction
+            try:
+                text_content = extract_text_from_excel(payload)
+                return text_content, []
+            except Exception as fallback_e:
+                logger.error(f"Fallback Excel extraction also failed for {filename}: {fallback_e}")
+                return f"[Error extracting Excel content: {e}]", []
     
     def _extract_text_from_attachment(self, payload: bytes, content_type: str, 
                                     filename: str) -> Optional[str]:
@@ -214,8 +275,9 @@ class AttachmentProcessor:
                 'application/vnd.ms-excel',
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             ]:
-                # FIXED: Handle Excel files properly instead of decoding as text
-                logger.debug(f"Extracting text from Excel file: {filename}")
+                # This case is now handled by _extract_from_excel_with_images
+                # But keep for backwards compatibility
+                logger.debug(f"Using basic Excel extraction for: {filename}")
                 return extract_text_from_excel(payload)
             elif content_type in [
                 'application/msword',
@@ -225,7 +287,6 @@ class AttachmentProcessor:
             else:
                 # Try to extract as plain text for other types
                 try:
-                    # FIXED: Don't try to decode binary files as text
                     # Check if it looks like text first
                     if self._is_likely_text_content(payload):
                         return payload.decode('utf-8', errors='replace')[:1000]  # Limit size
