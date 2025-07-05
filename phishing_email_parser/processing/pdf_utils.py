@@ -1,5 +1,6 @@
 import io
 import logging
+
 from pdfminer.high_level import extract_text
 
 logger = logging.getLogger(__name__)

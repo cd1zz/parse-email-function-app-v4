@@ -4,15 +4,15 @@ Email attachment processor for phishing analysis.
 Handles extraction, analysis, and text content extraction from email attachments.
 """
 
-import os
-import logging
-import hashlib
 import email
+import hashlib
+import logging
+import os
 import re
 from email import policy
-from typing import List, Dict, Any, Optional
 from email.message import Message
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from .pdf_utils import extract_text_from_pdf
 
@@ -218,7 +218,7 @@ class AttachmentProcessor:
                 # Try to extract as plain text for other types
                 try:
                     return payload.decode('utf-8', errors='replace')[:1000]  # Limit size
-                except:
+                except Exception:
                     return None
         except Exception as e:
             logger.warning(f"Error extracting text from {filename}: {e}")
@@ -230,8 +230,9 @@ class AttachmentProcessor:
             # Try to use python-docx for Word documents
             if filename.lower().endswith('.docx'):
                 try:
-                    import docx
                     from io import BytesIO
+
+                    import docx
                     doc = docx.Document(BytesIO(payload))
                     return '\n'.join([paragraph.text for paragraph in doc.paragraphs])
                 except ImportError:

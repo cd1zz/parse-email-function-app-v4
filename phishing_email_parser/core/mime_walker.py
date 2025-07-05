@@ -9,11 +9,12 @@ for every message layer.  The top level has ``depth`` 0.  ``vendor_tag`` is
 """
 from __future__ import annotations
 
+import logging
+import re
 from email import policy
 from email.message import Message
 from email.parser import BytesParser
 from typing import Generator, Optional, Tuple
-import logging, re
 
 from .carrier_detector import detect_vendor
 
@@ -41,7 +42,7 @@ def _as_message(payload) -> Message | None:
         return msg
 
     # ── auto-decode if payload is STILL base-64 (double-encoded nested mail) ──
-    import base64, re
+    import base64
     if re.fullmatch(rb'[A-Za-z0-9+/=\r\n]{800,}', payload):    # looks like b64
         try:
             decoded = base64.b64decode(payload, validate=False)

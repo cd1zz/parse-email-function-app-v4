@@ -8,37 +8,39 @@ structures, and outputs structured JSON for LLM analysis with enhanced
 carrier detection and content deduplication.
 """
 
-import sys
-import os
+import hashlib
 import json
 import logging
+import os
 import re
-import hashlib
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Set
-from email import policy
-from email.parser import BytesParser
-from email.message import Message
-import tempfile
 import shutil
+import sys
+import tempfile
+from email import policy
+from email.message import Message
+from email.parser import BytesParser
+from io import BytesIO
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
-# Import our modules
-from .core.mime_walker import walk_layers
-from .core.html_cleaner import PhishingEmailHtmlCleaner
-from .core.carrier_detector import (
-    detect_vendor_enhanced, 
-    get_carrier_analysis_priority,
-    format_carrier_summary,
-    analyze_potential_carrier
-)
-from .processing.attachment_processor import AttachmentProcessor
-from .processing.msg_converter import MSGConverter
-from .url_processing.processor import UrlProcessor
+import pytesseract
 
 # For compatibility with original script functionality
 from PIL import Image
-import pytesseract
-from io import BytesIO
+
+from .core.carrier_detector import (
+    analyze_potential_carrier,
+    detect_vendor_enhanced,
+    format_carrier_summary,
+    get_carrier_analysis_priority,
+)
+from .core.html_cleaner import PhishingEmailHtmlCleaner
+
+# Import our modules
+from .core.mime_walker import walk_layers
+from .processing.attachment_processor import AttachmentProcessor
+from .processing.msg_converter import MSGConverter
+from .url_processing.processor import UrlProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -69,14 +71,14 @@ class EmailContentDeduplicator:
                         if content:
                             body_sample = content[:500]  # First 500 chars
                             break
-                    except:
+                    except Exception:
                         continue
         else:
             try:
                 content = msg.get_content()
                 if content:
                     body_sample = content[:500]
-            except:
+            except Exception:
                 pass
         
         # Create signature from combined fields
