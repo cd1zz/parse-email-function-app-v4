@@ -5,19 +5,17 @@ Converts Microsoft Outlook .msg files to standard .eml format with
 enhanced MIME attachment detection for embedded HTML content.
 """
 
-import os
+import base64
+import binascii
+import email
+import html
 import logging
 import mimetypes
 import re
-import base64
-import binascii
-import textwrap
-import email
-import html
 from email import policy
-from pathlib import Path
-from typing import Tuple, List, Optional, Dict, Any
 from email.message import EmailMessage
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -212,11 +210,12 @@ def parse_mime_section(section: str, section_idx: int, output_dir: str, boundary
         return None
     
     # Save to disk
-    os.makedirs(output_dir, exist_ok=True)
-    file_path = os.path.join(output_dir, filename)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    file_path = out_dir / filename
     
     try:
-        with open(file_path, 'wb') as f:
+        with file_path.open('wb') as f:
             f.write(decoded_content)
         logger.info(f"Extracted MIME attachment: {filename} ({len(decoded_content)} bytes)")
     except Exception as e:
@@ -292,11 +291,12 @@ class MSGConverter:
         logger.debug("Converting MSG %s to EML in %s", msg_path, output_dir)
 
         # Create output directory
-        os.makedirs(output_dir, exist_ok=True)
+        out_dir = Path(output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
         
         # Generate EML filename
         eml_filename = msg_path.stem + ".eml"
-        eml_path = os.path.join(output_dir, eml_filename)
+        eml_path = out_dir / eml_filename
         
         try:
             # Load the MSG file
@@ -306,7 +306,7 @@ class MSGConverter:
             eml = self._create_eml_from_msg(msg, output_dir)
             
             # Save EML file
-            with open(eml_path, 'wb') as f:
+            with eml_path.open('wb') as f:
                 f.write(eml.as_bytes())
                 
             # Extract attachments to output directory
@@ -448,8 +448,8 @@ class MSGConverter:
         for attachment in mime_attachments:
             try:
                 logger.debug("Adding MIME attachment %s", attachment.get("filename"))
-                if attachment.get("disk_path") and os.path.exists(attachment["disk_path"]):
-                    with open(attachment["disk_path"], 'rb') as f:
+                if attachment.get("disk_path") and Path(attachment["disk_path"]).exists():
+                    with Path(attachment["disk_path"]).open('rb') as f:
                         attachment_data = f.read()
                     
                     # Determine maintype and subtype
@@ -595,8 +595,8 @@ class MSGConverter:
                     continue
                 
                 # Save to disk
-                file_path = os.path.join(output_dir, filename)
-                with open(file_path, 'wb') as f:
+                file_path = Path(output_dir) / filename
+                with file_path.open('wb') as f:
                     f.write(data)
 
                 attachment_paths.append((filename, file_path))

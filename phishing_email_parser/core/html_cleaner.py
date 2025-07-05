@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import html2text
 import html
 import re
 import unicodedata
+
+import html2text
 from bs4 import BeautifulSoup
 
 
