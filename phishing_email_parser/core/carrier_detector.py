@@ -15,9 +15,10 @@ Extend *CARRIER_PATTERNS* as you encounter new products.  Regular
  expressions are case‑insensitive.
 """
 from __future__ import annotations
+
 import re
 from email.message import Message
-from typing import Tuple, Optional, Dict, List, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 # Security appliance patterns (original functionality)
 CARRIER_PATTERNS: dict[str, tuple[str, str]] = {
@@ -131,7 +132,6 @@ class EnhancedCarrierDetector:
             "submission_type": None
         }
         
-        best_match = None
         best_score = 0
         
         # Check each user submission type
@@ -142,7 +142,6 @@ class EnhancedCarrierDetector:
             
             if type_evidence["confidence_score"] > best_score:
                 best_score = type_evidence["confidence_score"]
-                best_match = submission_type
                 evidence = type_evidence
                 evidence["submission_type"] = submission_type
         
@@ -239,7 +238,7 @@ class EnhancedCarrierDetector:
                         content = part.get_content()
                         if content:
                             body_text += content + "\n"
-                    except:
+                    except Exception:
                         continue
                 elif part.get_content_type() == "text/html" and not part.get_filename() and not body_text:
                     # Fall back to HTML if no plain text
@@ -250,14 +249,14 @@ class EnhancedCarrierDetector:
                             import re
                             content = re.sub(r'<[^>]+>', ' ', content)
                             body_text = content
-                    except:
+                    except Exception:
                         continue
         else:
             try:
                 content = msg.get_content()
                 if content:
                     body_text = content
-            except:
+            except Exception:
                 pass
         return body_text[:3000]  # Limit for performance
     
@@ -281,10 +280,7 @@ class EnhancedCarrierDetector:
     @staticmethod
     def _count_attachments(msg: Message) -> int:
         """Count total attachments."""
-        count = 0
-        for part in msg.iter_attachments():
-            count += 1
-        return count
+        return sum(1 for _ in msg.iter_attachments())
     
     @staticmethod
     def _has_forwarding_headers(body_text: str) -> bool:

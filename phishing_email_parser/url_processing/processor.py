@@ -5,8 +5,9 @@ import time
 import urllib.parse
 
 import requests  # type: ignore
-from .validator import UrlValidator
+
 from .decoder import UrlDecoder
+from .validator import UrlValidator
 
 logger = logging.getLogger(__name__)
 

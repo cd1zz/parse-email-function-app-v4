@@ -8,6 +8,7 @@ This script demonstrates how to use the parser for different scenarios.
 import json
 import logging
 from pathlib import Path
+
 from phishing_email_parser import PhishingEmailParser
 
 # Configure detailed logging
