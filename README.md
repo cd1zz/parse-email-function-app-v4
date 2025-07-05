@@ -23,6 +23,59 @@ A comprehensive Python package for parsing and analyzing phishing emails, design
 - Extract URLs and text from image content
 - Support for multiple image formats
 
+### 📊 **Enhanced Excel Processing**
+- Extract text content from spreadsheet cells, formulas, and comments
+- **NEW**: Extract and OCR embedded images within Excel files
+- **NEW**: Detect hyperlinks associated with embedded images
+- Identify VBA macros and suspicious code execution
+- Extract URLs from cell content, formulas, and embedded images
+- Support for both `.xlsx` and `.xls` formats with multiple parsing engines
+
+#### Excel Image Processing
+The parser now extracts and analyzes images embedded within Excel files:
+
+```python
+from phishing_email_parser.processing.excel_utils import extract_excel_with_images
+
+# Extract both text and images from Excel file
+text_content, images = extract_excel_with_images(excel_data, output_directory)
+
+# Each image contains:
+# - OCR text content
+# - URLs found in the image
+# - Hyperlinks associated with the image
+# - Image metadata and disk location
+```
+
+Example Output Structure (Enhanced)
+
+```json
+{
+  "attachments": [
+    {
+      "filename": "malicious.xlsx",
+      "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "text_content": "Extracted spreadsheet text...",
+      "embedded_images": [
+        {
+          "filename": "xlsx_image_0_image1.png",
+          "ocr_text": "Click here to verify your account",
+          "urls_from_ocr": ["https://malicious-site.com"],
+          "hyperlinks": ["https://phishing-redirect.com"],
+          "size": 15420,
+          "content_type": "image/png"
+        }
+      ],
+      "urls": ["https://malicious-site.com", "https://phishing-redirect.com"]
+    }
+  ],
+  "summary": {
+    "total_images": 1,
+    "total_embedded_images": 1
+  }
+}
+```
+
 ### 🔗 **URL Processing**
 - Extract URLs from email body, attachments, and OCR text
 - Decode wrapped URLs (Microsoft SafeLinks, Proofpoint URL Defense)
