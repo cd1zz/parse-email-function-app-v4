@@ -4,17 +4,18 @@ Email attachment processor for phishing analysis.
 Handles extraction, analysis, and text content extraction from email attachments.
 """
 
-import os
-import logging
-import hashlib
 import email
+import hashlib
+import logging
+import os
 import re
 from email import policy
-from typing import List, Dict, Any, Optional
 from email.message import Message
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from .pdf_utils import extract_text_from_pdf
+from .excel_utils import extract_text_from_excel
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +211,13 @@ class AttachmentProcessor:
                 html_text = payload.decode('utf-8', errors='replace')
                 return PhishingEmailHtmlCleaner.clean_html(html_text)
             elif content_type in [
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ]:
+                # FIXED: Handle Excel files properly instead of decoding as text
+                logger.debug(f"Extracting text from Excel file: {filename}")
+                return extract_text_from_excel(payload)
+            elif content_type in [
                 'application/msword',
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
             ]:
@@ -217,12 +225,32 @@ class AttachmentProcessor:
             else:
                 # Try to extract as plain text for other types
                 try:
-                    return payload.decode('utf-8', errors='replace')[:1000]  # Limit size
-                except:
-                    return None
+                    # FIXED: Don't try to decode binary files as text
+                    # Check if it looks like text first
+                    if self._is_likely_text_content(payload):
+                        return payload.decode('utf-8', errors='replace')[:1000]  # Limit size
+                    else:
+                        return f"[Binary file: {content_type}]"
+                except Exception:
+                    return f"[Could not extract text from {content_type}]"
         except Exception as e:
             logger.warning(f"Error extracting text from {filename}: {e}")
             return f"[Error extracting text: {e}]"
+    
+    def _is_likely_text_content(self, payload: bytes) -> bool:
+        """Check if binary payload is likely to contain text."""
+        if not payload:
+            return False
+        
+        # Sample first 1000 bytes
+        sample = payload[:1000]
+        
+        # Count printable ASCII characters
+        printable_count = sum(1 for b in sample if 32 <= b <= 126 or b in [9, 10, 13])
+        ratio = printable_count / len(sample)
+        
+        # If more than 70% printable ASCII, likely text
+        return ratio > 0.7
     
     def _extract_from_office_doc(self, payload: bytes, filename: str) -> Optional[str]:
         """Extract text from Office documents."""
@@ -230,8 +258,9 @@ class AttachmentProcessor:
             # Try to use python-docx for Word documents
             if filename.lower().endswith('.docx'):
                 try:
-                    import docx
                     from io import BytesIO
+
+                    import docx
                     doc = docx.Document(BytesIO(payload))
                     return '\n'.join([paragraph.text for paragraph in doc.paragraphs])
                 except ImportError:
