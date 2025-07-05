@@ -21,10 +21,10 @@ import tempfile
 import shutil
 
 # Import our modules - FIXED IMPORTS
-from .core.html_cleaner import PhishingEmailHtmlCleaner
-from .processing.attachment_processor import AttachmentProcessor
-from .processing.msg_converter import MSGConverter
-from .url_processing.processor import UrlProcessor
+from ..core.html_cleaner import PhishingEmailHtmlCleaner
+from .attachment_processor import AttachmentProcessor
+from .msg_converter import MSGConverter
+from ..url_processing.processor import UrlProcessor
 
 # For compatibility with original script functionality
 from PIL import Image

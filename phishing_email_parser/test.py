@@ -1,5 +1,5 @@
 from pathlib import Path
-from processing.msg_converter import MSGConverter   # adjust import to your package layout
+from phishing_email_parser.processing.msg_converter import MSGConverter
 
 out_dir = Path("debug_artifacts").resolve()     # pick any folder you like
 out_dir.mkdir(exist_ok=True)
