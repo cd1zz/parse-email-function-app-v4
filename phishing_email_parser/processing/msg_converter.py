@@ -11,7 +11,6 @@ import mimetypes
 import re
 import base64
 import binascii
-import textwrap
 import email
 import html
 from email import policy
