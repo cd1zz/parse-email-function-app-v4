@@ -483,56 +483,67 @@ class MSGConverter:
         return eml
     
     def _add_attachment_to_eml(self, eml: EmailMessage, attachment, index: int):
-            """Add an attachment to the EML message with proper nested email handling."""
-            try:
-                # Get attachment data
-                filename = (
-                    getattr(attachment, 'longFilename', None) or
-                    getattr(attachment, 'shortFilename', None) or
-                    f"attachment_{index}"
-                )
-                
-                # Strip null terminators and other problematic characters
-                if filename:
-                    filename = self._clean_header_value(filename)
-                
-                data = getattr(attachment, 'data', None)
-                if not data:
-                    logger.warning(f"No data found for attachment {filename}")
-                    return
-                
-                # **KEY FIX**: Properly handle .eml files and nested emails
-                if (filename.lower().endswith('.eml') or 
-                    self._is_email_content(data)):
-                    # This is a nested email - use message/rfc822 content type
-                    logger.debug(f"Detected nested email attachment: {filename}")
-                    eml.add_attachment(
-                        data,
-                        maintype='message',
-                        subtype='rfc822',
-                        filename=filename
-                    )
-                    logger.debug("Added nested email attachment %s to EML", filename)
-                    return
-                
-                # Guess MIME type for regular attachments
+        """Add an attachment to the EML message with proper content type preservation."""
+        try:
+            # Get attachment data
+            filename = (
+                getattr(attachment, 'longFilename', None) or
+                getattr(attachment, 'shortFilename', None) or
+                f"attachment_{index}"
+            )
+            
+            # Strip null terminators and other problematic characters
+            if filename:
+                filename = self._clean_header_value(filename)
+            
+            data = getattr(attachment, 'data', None)
+            if not data:
+                logger.warning(f"No data found for attachment {filename}")
+                return
+            
+            # FIXED: Don't override content type based on filename
+            # Instead, try to get the original content type from the MSG attachment
+            original_content_type = None
+            
+            # Try to get content type from MSG attachment properties
+            if hasattr(attachment, 'mimetype'):
+                original_content_type = attachment.mimetype
+            elif hasattr(attachment, 'contentType'):
+                original_content_type = attachment.contentType
+            
+            # If we have an original content type, use it
+            if original_content_type:
+                logger.debug(f"Using original content type from MSG: {original_content_type}")
+                if '/' in original_content_type:
+                    maintype, subtype = original_content_type.split('/', 1)
+                else:
+                    maintype, subtype = 'application', 'octet-stream'
+            else:
+                # Fallback: guess MIME type based on filename, but don't force message/rfc822
                 mime_type, _ = mimetypes.guess_type(filename)
                 if not mime_type:
-                    mime_type = 'application/octet-stream'
+                    # Only check if it's actually email content, not just filename
+                    if self._is_email_content(data):
+                        mime_type = 'message/rfc822'
+                        logger.debug(f"Content analysis confirms this is an email: {filename}")
+                    else:
+                        mime_type = 'application/octet-stream'
+                        logger.debug(f"Using fallback content type for: {filename}")
                 
                 maintype, subtype = mime_type.split('/', 1)
-                
-                # Add attachment
-                eml.add_attachment(
-                    data,
-                    maintype=maintype,
-                    subtype=subtype,
-                    filename=filename
-                )
-                logger.debug("Added MSG attachment %s to EML", filename)
-                
-            except Exception as e:
-                logger.warning(f"Error adding attachment {index} to EML: {e}")
+            
+            # Add attachment with preserved/correct content type
+            eml.add_attachment(
+                data,
+                maintype=maintype,
+                subtype=subtype,
+                filename=filename
+            )
+            
+            logger.debug(f"Added MSG attachment {filename} with content type {maintype}/{subtype}")
+            
+        except Exception as e:
+            logger.warning(f"Error adding attachment {index} to EML: {e}")
 
     def _is_email_content(self, data: bytes) -> bool:
         """Check if the data looks like email content."""

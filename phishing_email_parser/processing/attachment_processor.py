@@ -108,7 +108,7 @@ class AttachmentProcessor:
         return attachments
     
     def _process_single_attachment(self, part: Message, index: int,
-                                 output_dir: str) -> Optional[Dict[str, Any]]:
+                                output_dir: str) -> Optional[Dict[str, Any]]:
         """Process a single email attachment."""
         filename = part.get_filename()
         if not filename:
@@ -143,7 +143,7 @@ class AttachmentProcessor:
         attachment_info = {
             "index": index,
             "filename": filename,
-            "content_type": content_type,
+            "content_type": content_type,  # FIXED: Preserve original content type
             "size": file_size,
             "sha256": file_hash,
             "extension": file_extension,
@@ -163,18 +163,24 @@ class AttachmentProcessor:
                 urls = self._extract_urls_from_text(text_content)
                 attachment_info["urls"] = urls
         
-        # Handle nested email attachments
-        if content_type == "message/rfc822" or filename.lower().endswith('.eml'):
-            attachment_info["is_nested_email"] = True
-            # The nested email will be handled by the main parser's walk_layers
-        else:
-            attachment_info["is_nested_email"] = False
+        # FIXED: Detect nested emails based on multiple criteria, not just content type
+        is_nested_email = (
+            content_type == "message/rfc822" or  # Traditional nested email
+            filename.lower().endswith('.eml') or  # .eml file attachment
+            self._is_email_content_heuristic(payload)  # Content analysis
+        )
+        
+        attachment_info["is_nested_email"] = is_nested_email
+        
+        if is_nested_email:
+            logger.debug(f"Detected nested email: {filename} (content_type: {content_type})")
 
         logger.debug(
-            "Attachment %s processed: size=%d, nested_email=%s",
+            "Attachment %s processed: size=%d, nested_email=%s, content_type=%s",
             filename,
             file_size,
-            attachment_info["is_nested_email"],
+            is_nested_email,
+            content_type
         )
 
         return attachment_info
@@ -263,3 +269,32 @@ class AttachmentProcessor:
                 cleaned_urls.append(cleaned)
         
         return list(set(cleaned_urls))  # Remove duplicates
+    
+
+    def _is_email_content_heuristic(self, data: bytes) -> bool:
+        """Enhanced heuristic to detect if attachment content is an email."""
+        try:
+            # Try to decode as text and look for email headers
+            if isinstance(data, bytes):
+                text_data = data.decode('utf-8', errors='replace')[:2000]  # Check first 2000 chars
+            else:
+                text_data = str(data)[:2000]
+            
+            # Look for common email headers (more comprehensive list)
+            email_indicators = [
+                'Received:', 'From:', 'To:', 'Subject:', 'Date:', 'Message-ID:', 
+                'Return-Path:', 'X-Mailer:', 'MIME-Version:', 'Content-Type:',
+                'Delivered-To:', 'X-Originating-IP:', 'Authentication-Results:'
+            ]
+            
+            found_headers = sum(1 for indicator in email_indicators if indicator in text_data)
+            
+            # Also check for typical email structure patterns
+            has_header_block = bool(re.search(r'^[A-Za-z-]+:\s+.+$', text_data, re.MULTILINE))
+            has_mime_boundary = 'boundary=' in text_data
+            
+            # If we find multiple email headers or typical email structure, it's likely an email
+            return (found_headers >= 3) or (found_headers >= 2 and (has_header_block or has_mime_boundary))
+            
+        except Exception:
+            return False
