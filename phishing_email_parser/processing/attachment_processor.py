@@ -1,182 +1,517 @@
+#!/usr/bin/env python3
 """
-Email attachment processor for phishing analysis.
+Comprehensive phishing email parser for LLM analysis.
 
-Handles extraction, analysis, and text content extraction from email attachments.
+This parser handles user-submitted phishing emails, detects carrier emails
+from security appliances, recursively parses nested structures, and outputs
+structured JSON for LLM analysis.
 """
 
+import sys
 import os
+import json
 import logging
-import hashlib
-import email
-from email import policy
-from typing import List, Dict, Any, Optional
-from email.message import Message
+import re
 from pathlib import Path
+from typing import Dict, List, Any, Optional
+from email import policy
+from email.parser import BytesParser
+from email.message import Message
+import tempfile
+import shutil
 
-from .pdf_utils import extract_text_from_pdf
+# Import our modules - FIXED IMPORTS
+from .core.html_cleaner import PhishingEmailHtmlCleaner
+from .processing.attachment_processor import AttachmentProcessor
+from .processing.msg_converter import MSGConverter
+from .url_processing.processor import UrlProcessor
+
+# For compatibility with original script functionality
+from PIL import Image
+import pytesseract
+from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
 
-class AttachmentProcessor:
-    """Process email attachments for phishing analysis."""
+class PhishingEmailParser:
+    """Main parser for phishing emails submitted by users."""
     
-    # File types that commonly contain text content
-    TEXT_EXTRACTABLE_TYPES = {
-        'application/pdf',
-        'text/plain',
-        'text/html',
-        'text/csv',
-        'application/rtf',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    }
-    
-    # Suspicious file extensions to flag
-    SUSPICIOUS_EXTENSIONS = {
-        '.exe', '.scr', '.bat', '.cmd', '.com', '.pif', '.vbs', '.js', '.jar',
-        '.zip', '.rar', '.7z', '.ace', '.arj', '.cab', '.lzh', '.tar', '.gz'
-    }
-    
-    def __init__(self, temp_dir: str):
-        """Initialize with temporary directory for file extraction."""
-        self.temp_dir = temp_dir
-        os.makedirs(temp_dir, exist_ok=True)
+    def __init__(self, temp_dir: Optional[str] = None):
+        """Initialize parser with optional temporary directory."""
+        self.temp_dir = temp_dir or tempfile.mkdtemp(prefix="phishing_parser_")
+        self.attachment_processor = AttachmentProcessor(self.temp_dir)
+        self.msg_converter = MSGConverter()
         
-    def process_attachments(self, msg: Message, output_dir: str) -> List[Dict[str, Any]]:
-        """Process all attachments in an email message."""
-        logger.debug("Processing attachments to %s", output_dir)
-        attachments = []
-        attachment_idx = 1
+    def __enter__(self):
+        return self
         
-        for part in msg.iter_attachments():
-            try:
-                content_type = part.get_content_type()
-                logger.debug(
-                    "Handling attachment %d with content type %s",
-                    attachment_idx,
-                    content_type,
-                )
-
-                if content_type.startswith("message/"):
-                    nested_obj = (
-                        part.get_payload(0) if part.is_multipart() else part.get_payload()
-                    )
-                    if isinstance(nested_obj, email.message.Message):
-                        raw_bytes = nested_obj.as_bytes(policy=policy.default)
-                    else:
-                        raw_bytes = nested_obj
-
-                    filename = part.get_filename() or f"nested_{attachment_idx}.eml"
-                    disk_path = os.path.join(output_dir, filename)
-                    with open(disk_path, "wb") as fh:
-                        fh.write(raw_bytes)
-
-                    attachments.append(
-                        {
-                            "index": attachment_idx,
-                            "filename": filename,
-                            "content_type": content_type,
-                            "disk_path": disk_path,
-                            "size": len(raw_bytes),
-                            "is_nested_email": True,
-                        }
-                    )
-                    attachment_idx += 1
-                    continue
-
-                attachment_data = self._process_single_attachment(
-                    part, attachment_idx, output_dir
-                )
-                if attachment_data:
-                    attachments.append(attachment_data)
-                    attachment_idx += 1
-            except Exception as e:
-                logger.error(f"Error processing attachment {attachment_idx}: {e}")
-                # Create minimal error entry
-                attachments.append({
-                    "index": attachment_idx,
-                    "filename": f"attachment_{attachment_idx}_error",
-                    "error": str(e),
-                    "processed": False
-                })
-                attachment_idx += 1
-
-        logger.debug("Finished processing attachments: %d found", len(attachments))
-        return attachments
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Clean up temporary directory."""
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
     
-    
-    def _extract_text_from_attachment(self, payload: bytes, content_type: str, 
-                                    filename: str) -> Optional[str]:
-        """Extract text content from attachment based on content type."""
-        try:
-            if content_type == 'application/pdf':
-                return extract_text_from_pdf(payload)
-            elif content_type.startswith('text/'):
-                # Try to decode as text
-                for encoding in ['utf-8', 'utf-16', 'iso-8859-1', 'cp1252']:
-                    try:
-                        return payload.decode(encoding)
-                    except UnicodeDecodeError:
-                        continue
-                return payload.decode('utf-8', errors='replace')
-            elif content_type == 'text/html':
-                # Import here to avoid circular import
-                from core.html_cleaner import PhishingEmailHtmlCleaner
-                html_text = payload.decode('utf-8', errors='replace')
-                return PhishingEmailHtmlCleaner.clean_html(html_text)
-            elif content_type in [
-                'application/msword',
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            ]:
-                return self._extract_from_office_doc(payload, filename)
-            else:
-                # Try to extract as plain text for other types
-                try:
-                    return payload.decode('utf-8', errors='replace')[:1000]  # Limit size
-                except:
-                    return None
-        except Exception as e:
-            logger.warning(f"Error extracting text from {filename}: {e}")
-            return f"[Error extracting text: {e}]"
-    
-    def _extract_from_office_doc(self, payload: bytes, filename: str) -> Optional[str]:
-        """Extract text from Office documents."""
-        try:
-            # Try to use python-docx for Word documents
-            if filename.lower().endswith('.docx'):
-                try:
-                    import docx
-                    from io import BytesIO
-                    doc = docx.Document(BytesIO(payload))
-                    return '\n'.join([paragraph.text for paragraph in doc.paragraphs])
-                except ImportError:
-                    logger.warning("python-docx not available for .docx extraction")
-                except Exception as e:
-                    logger.warning(f"Error with docx extraction: {e}")
+    def parse_email_file(self, email_path: str) -> Dict[str, Any]:
+        """
+        Parse an email file (.eml or .msg) and return structured data.
+        
+        Args:
+            email_path: Path to email file
             
-            # For other Office formats or fallback, try basic text extraction
-            text = payload.decode('utf-8', errors='replace')
-            # Filter out binary noise, keep only printable text
-            import string
-            printable = set(string.printable)
-            filtered_text = ''.join(filter(lambda x: x in printable, text))
-            if len(filtered_text) > 50:  # Only return if we got substantial text
-                return filtered_text[:2000]  # Limit size
-            return None
+        Returns:
+            Dictionary with parsed email structure
+        """
+        email_path = Path(email_path)
+        
+        if not email_path.exists():
+            raise FileNotFoundError(f"Email file not found: {email_path}")
+            
+        # Convert .msg to .eml if needed
+        if email_path.suffix.lower() == '.msg':
+            eml_path = self.msg_converter.convert_msg_to_eml(
+                str(email_path), 
+                self.temp_dir
+            )
+            email_path = Path(eml_path)
+        
+        # Parse the email
+        with open(email_path, 'rb') as f:
+            msg = BytesParser(policy=policy.default).parse(f)
+            
+        return self._parse_message_structure(msg, str(email_path.parent))
+    
+    def _clean_header_value(self, value):
+        """Clean header values by removing null terminators and other issues."""
+        if not value:
+            return ""
+        if isinstance(value, bytes):
+            value = value.decode('utf-8', errors='replace')
+        if isinstance(value, str):
+            # Remove null terminators and other control characters
+            value = value.rstrip('\x00').strip()
+            # Remove other common problematic characters
+            value = value.replace('\x00', '').replace('\r', '').replace('\n', ' ')
+        return value
+    
+    def _parse_message_structure(self, root_msg: Message, output_dir: str) -> Dict[str, Any]:
+        """Parse the complete message structure including nested emails."""
+        result = {
+            "parser_info": {
+                "version": "1.0",
+                "purpose": "phishing_email_analysis"
+            },
+            "message_layers": [],
+            "summary": {
+                "total_layers": 0,
+                "carrier_emails": [],
+                "total_attachments": 0,
+                "total_images": 0,
+                "total_urls": 0,
+                "has_nested_emails": False
+            }
+        }
+        
+        # Track processed nested emails to prevent duplicates
+        processed_nested_emails = set()
+        
+        # Walk through all message layers using the existing MIME walker
+        for depth, msg, vendor_tag in walk_layers(root_msg):
+            layer_data = self._parse_single_layer(msg, depth, vendor_tag, output_dir)
+            
+            # Track message-rfc822 parts that were processed by walk_layers
+            message_id = msg.get('Message-ID', '')
+            if message_id:
+                processed_nested_emails.add(message_id)
+            
+            result["message_layers"].append(layer_data)
+            
+            # Update summary
+            result["summary"]["total_layers"] += 1
+            if vendor_tag:
+                result["summary"]["carrier_emails"].append({
+                    "layer": depth,
+                    "vendor": vendor_tag
+                })
+            if depth > 0:
+                result["summary"]["has_nested_emails"] = True
+        
+        # FIXED: Only process attachment-based nested emails that weren't already processed by walk_layers
+        nested_layers = self._process_nested_email_attachments(
+            result["message_layers"], 
+            output_dir, 
+            processed_nested_emails
+        )
+        result["message_layers"].extend(nested_layers)
+        
+        # Update summary counts after processing nested emails
+        result["summary"]["total_layers"] = len(result["message_layers"])
+        if nested_layers:
+            result["summary"]["has_nested_emails"] = True
+            
+        # Aggregate URLs, attachments, and images across all layers
+        all_urls = []
+        total_attachments = 0
+        total_images = 0
+        
+        for layer in result["message_layers"]:
+            if "urls" in layer:
+                all_urls.extend(layer["urls"])
+            if "attachments" in layer:
+                total_attachments += len(layer["attachments"])
+            if "images" in layer:
+                total_images += len(layer["images"])
+                
+        result["summary"]["total_urls"] = len(all_urls)
+        result["summary"]["total_attachments"] = total_attachments
+        result["summary"]["total_images"] = total_images
+        
+        return result
+
+    def _process_nested_email_attachments(self, existing_layers: List[Dict], 
+                                        output_dir: str, 
+                                        processed_nested_emails: set) -> List[Dict]:
+        """Process nested email attachments that weren't already processed by walk_layers."""
+        nested_layers = []
+        
+        for layer in existing_layers:
+            current_depth = layer.get("layer_depth", 0)
+            attachments = layer.get("attachments", [])
+            
+            for attachment in attachments:
+                # FIXED: Only process attachments that are NOT message/rfc822
+                # (message/rfc822 parts are handled by walk_layers)
+                if (attachment.get("is_nested_email", False) and 
+                    attachment.get("content_type") != "message/rfc822"):
+                    
+                    logger.info(f"Processing attachment-based nested email: {attachment['filename']}")
+                    
+                    try:
+                        # Check if this email was already processed
+                        nested_email_layers = self._parse_nested_email_attachment(
+                            attachment, current_depth + 1, output_dir, processed_nested_emails
+                        )
+                        nested_layers.extend(nested_email_layers)
+                        
+                    except Exception as e:
+                        logger.error(f"Error parsing nested email {attachment['filename']}: {e}")
+                        # Add error info to the attachment
+                        attachment["nested_parse_error"] = str(e)
+        
+        return nested_layers
+
+    def _parse_nested_email_attachment(self, attachment: Dict, base_depth: int, 
+                                     output_dir: str, processed_nested_emails: set) -> List[Dict]:
+        """Parse a single nested email attachment and return its layers."""
+        disk_path = attachment.get("disk_path")
+        if not disk_path or not os.path.exists(disk_path):
+            logger.warning(f"Nested email file not found: {disk_path}")
+            return []
+        
+        try:
+            # Load and parse the nested email file
+            with open(disk_path, 'rb') as f:
+                nested_msg = BytesParser(policy=policy.default).parse(f)
+            
+            # Check if this email was already processed by walk_layers
+            message_id = nested_msg.get('Message-ID', '')
+            if message_id and message_id in processed_nested_emails:
+                logger.debug(f"Skipping {attachment['filename']} - already processed by MIME walker")
+                return []
+            
+            logger.debug(f"Parsing nested email from {attachment['filename']} at depth {base_depth}")
+            
+            nested_layers = []
+            
+            # Walk through the nested email using the same logic
+            for depth, msg, vendor_tag in walk_layers(nested_msg):
+                # Adjust depth to be relative to the parent layer
+                adjusted_depth = base_depth + depth
+                
+                layer_data = self._parse_single_layer(msg, adjusted_depth, vendor_tag, output_dir)
+                
+                # Add metadata to show this came from a nested attachment
+                layer_data["parent_attachment"] = {
+                    "filename": attachment["filename"],
+                    "parent_layer_depth": base_depth - 1,
+                    "attachment_index": attachment.get("index")
+                }
+                
+                # Track this email as processed
+                msg_id = msg.get('Message-ID', '')
+                if msg_id:
+                    processed_nested_emails.add(msg_id)
+                
+                nested_layers.append(layer_data)
+                
+                logger.debug(f"Added nested layer at depth {adjusted_depth} from {attachment['filename']}")
+            
+            # Recursively process any nested emails found in this nested email
+            if nested_layers:
+                deeper_nested = self._process_nested_email_attachments(
+                    nested_layers, output_dir, processed_nested_emails
+                )
+                nested_layers.extend(deeper_nested)
+            
+            return nested_layers
+            
         except Exception as e:
-            logger.warning(f"Error extracting from Office document {filename}: {e}")
-            return None
+            logger.error(f"Error parsing nested email file {disk_path}: {e}")
+            raise
+
+    def _parse_single_layer(self, msg: Message, depth: int, vendor_tag: Optional[str],
+                           output_dir: str) -> Dict[str, Any]:
+        """Parse a single message layer."""
+        logger.debug(f"Parsing layer {depth}, vendor: {vendor_tag}")
+        
+        layer = {
+            "layer_depth": depth,
+            "is_carrier_email": vendor_tag is not None,
+            "carrier_vendor": vendor_tag,
+            "headers": self._extract_headers(msg),
+            "body": self._extract_body(msg),
+            "attachments": [],
+            "images": [],
+            "urls": [],
+            "nested_emails": []
+        }
+        
+        # Process attachments
+        attachments = self.attachment_processor.process_attachments(msg, output_dir)
+        if attachments:
+            layer["attachments"] = attachments
+        logger.debug("Layer %d - %d attachments processed", depth, len(attachments))
+        
+        # Extract images with OCR
+        images = self._extract_images_with_ocr(msg, output_dir)
+        layer["images"] = images
+        logger.debug("Layer %d - %d images processed", depth, len(images))
+        
+        # Extract URLs from body, attachments, and images
+        urls = self._extract_all_urls(layer["body"], layer["attachments"], images)
+        layer["urls"] = urls
+        logger.debug("Layer %d - %d URLs extracted", depth, len(urls))
+
+        # Truncate html_text to keep output concise and mark truncation
+        html_text = layer["body"].get("html_text")
+        if html_text:
+            truncated = html_text[:100]
+            if len(html_text) > 100:
+                truncated += "... [truncated]"
+            layer["body"]["html_text"] = truncated
+
+        return layer
+    
+    def _extract_headers(self, msg: Message) -> Dict[str, Any]:
+        """Extract relevant headers from message."""
+        return {
+            "subject": self._clean_header_value(msg.get("subject", "")),
+            "from": self._clean_header_value(msg.get("from", "")),
+            "to": self._clean_header_value(msg.get("to", "")),
+            "cc": self._clean_header_value(msg.get("cc", "")),
+            "bcc": self._clean_header_value(msg.get("bcc", "")),
+            "date": self._clean_header_value(msg.get("date", "")),
+            "message_id": self._clean_header_value(msg.get("message-id", "")),
+            "reply_to": self._clean_header_value(msg.get("reply-to", "")),
+            "return_path": self._clean_header_value(msg.get("return-path", "")),
+            "received": [self._clean_header_value(r) for r in (msg.get_all("received") or [])],
+            "x_headers": {
+                k: self._clean_header_value(v) 
+                for k, v in msg.items() 
+                if k.lower().startswith('x-')
+            }
+        }
+    
+    def _extract_body(self, msg: Message) -> Dict[str, Any]:
+        """Extract and process email body content."""
+        body_data = {
+            "plain_text": "",
+            "html_text": "",
+            "converted_text": "",
+            "has_html": False,
+            "has_plain": False
+        }
+        
+        def get_content_safe(part):
+            """Safely get content from an email part."""
+            try:
+                content = part.get_content()
+                # Clean the content of null bytes and other problematic characters
+                if isinstance(content, str):
+                    content = content.replace('\x00', '')
+                return content
+            except Exception as e:
+                logger.warning(f"Error getting content from email part: {e}")
+                return ""
+        
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                # FIXED: Clean content type
+                if content_type:
+                    content_type = content_type.rstrip('\x00').strip()
+                    
+                if content_type == "text/plain" and not part.get_filename():
+                    plain_content = get_content_safe(part)
+                    if plain_content:
+                        if PhishingEmailHtmlCleaner.contains_html(plain_content):
+                            body_data["html_text"] = plain_content
+                            body_data["has_html"] = True
+                            body_data["converted_text"] = PhishingEmailHtmlCleaner.clean_html(
+                                plain_content, aggressive_cleaning=True
+                            )
+                        else:
+                            body_data["plain_text"] = plain_content
+                            body_data["has_plain"] = True
+                            # Skip if it looks like base64 encoded data
+                            if (
+                                len(body_data["plain_text"]) > 800
+                                and re.fullmatch(r"[A-Za-z0-9+/=\s]{800,}", body_data["plain_text"])
+                            ):
+                                body_data["plain_text"] = ""
+                elif content_type == "text/html" and not part.get_filename():
+                    html_content = get_content_safe(part)
+                    if html_content:
+                        body_data["html_text"] = html_content
+                        body_data["has_html"] = True
+                        # Convert HTML to plain text
+                        body_data["converted_text"] = PhishingEmailHtmlCleaner.clean_html(
+                            html_content, aggressive_cleaning=True
+                        )
+        else:
+            content_type = msg.get_content_type()
+            # FIXED: Clean content type
+            if content_type:
+                content_type = content_type.rstrip('\x00').strip()
+                
+            content = get_content_safe(msg)
+            if content:
+                if content_type == "text/plain":
+                    if PhishingEmailHtmlCleaner.contains_html(content):
+                        body_data["html_text"] = content
+                        body_data["has_html"] = True
+                        body_data["converted_text"] = PhishingEmailHtmlCleaner.clean_html(
+                            content, aggressive_cleaning=True
+                        )
+                    else:
+                        body_data["plain_text"] = content
+                        body_data["has_plain"] = True
+                        # Skip if it looks like base64 encoded data
+                        if (
+                            len(body_data["plain_text"]) > 800
+                            and re.fullmatch(r"[A-Za-z0-9+/=\s]{800,}", body_data["plain_text"])
+                        ):
+                            body_data["plain_text"] = ""
+                elif content_type == "text/html":
+                    body_data["html_text"] = content
+                    body_data["has_html"] = True
+                    body_data["converted_text"] = PhishingEmailHtmlCleaner.clean_html(
+                        content, aggressive_cleaning=True
+                    )
+        
+        # Use converted text if available, otherwise use plain text
+        if body_data["converted_text"]:
+            body_data["final_text"] = body_data["converted_text"]
+        else:
+            body_data["final_text"] = body_data["plain_text"]
+            
+        return body_data
+    
+    def _extract_all_urls(self, body_data: Dict[str, Any], attachments: List[Dict], 
+                         images: List[Dict]) -> List[Dict]:
+        """Extract and process URLs from body, attachments, and images."""
+        all_urls = []
+        
+        # Extract URLs from email body
+        body_text = body_data.get("final_text", "")
+        if body_text:
+            urls = self._extract_urls_from_text(body_text)
+            all_urls.extend(urls)
+            
+        # Extract URLs from HTML body if available
+        html_text = body_data.get("html_text", "")
+        if html_text:
+            html_urls = self._extract_urls_from_html(html_text)
+            all_urls.extend(html_urls)
+        
+        # Extract URLs from attachments
+        attachment_urls = UrlProcessor.extract_urls_from_attachments(attachments)
+        all_urls.extend(attachment_urls)
+        
+        # Extract URLs from OCR text in images
+        for image in images:
+            if image.get("ocr_text"):
+                image_urls = self._extract_urls_from_text(image["ocr_text"])
+                all_urls.extend(image_urls)
+        
+        # Process and deduplicate URLs
+        processed_urls = UrlProcessor.process_urls(all_urls)
+        return processed_urls
+    
+    def _extract_images_with_ocr(self, msg: Message, output_dir: str) -> List[Dict[str, Any]]:
+        """Extract images and perform OCR (from original script functionality)."""
+        images = []
+        image_idx = 1
+        
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            if ctype.startswith("image/"):
+                content_id = part.get("Content-ID")
+                filename = part.get_filename() or f"image_{image_idx}.png"
+                
+                # FIXED: Strip null terminators and other problematic characters
+                if filename:
+                    filename = filename.rstrip('\x00').strip()
+                    
+                # FIXED: Clean content type
+                if ctype:
+                    ctype = ctype.rstrip('\x00').strip()
+                    
+                out_path = os.path.join(output_dir, filename)
+                payload = part.get_payload(decode=True)
+                ocr_text = None
+                
+                if payload:
+                    # Save image to disk
+                    try:
+                        with open(out_path, "wb") as out:
+                            out.write(payload)
+                    except Exception as e:
+                        logger.warning(f"Error saving image {filename}: {e}")
+                        out_path = None
+                    
+                    # Perform OCR
+                    try:
+                        img = Image.open(BytesIO(payload))
+                        img = img.convert('L')  # Convert to grayscale
+                        ocr_text = pytesseract.image_to_string(img)
+                        if ocr_text:
+                            ocr_text = ocr_text.strip()
+                    except Exception as e:
+                        logger.warning(f"Error performing OCR on {filename}: {e}")
+                        ocr_text = None
+                
+                # FIXED: Clean content_id of null bytes too
+                clean_content_id = None
+                if content_id:
+                    clean_content_id = content_id.rstrip('\x00').strip()
+                
+                images.append({
+                    "index": image_idx,
+                    "filename": filename,
+                    "disk_path": out_path,
+                    "content_id": clean_content_id,
+                    "content_type": ctype,  # Now cleaned
+                    "ocr_text": ocr_text,
+                    "size": len(payload) if payload else 0
+                })
+                image_idx += 1
+        
+        return images
     
     def _extract_urls_from_text(self, text: str) -> List[str]:
-        """Extract URLs from text content."""
+        """Extract URLs from plain text."""
         import re
         
-        if not text:
-            return []
-            
         # Pattern to match URLs
         url_pattern = re.compile(
             r'https?://[^\s<>"{}|\\^`\[\]]+|www\.[^\s<>"{}|\\^`\[\]]+',
@@ -184,130 +519,62 @@ class AttachmentProcessor:
         )
         
         urls = url_pattern.findall(text)
-        # Clean up URLs (remove trailing punctuation)
-        cleaned_urls = []
-        for url in urls:
-            cleaned = url.rstrip('.,;:!?)]}')
-            if cleaned:
-                cleaned_urls.append(cleaned)
-        
-        return list(set(cleaned_urls))  # Remove duplicates
+        return [url.rstrip('.,;:!?)]}') for url in urls]
     
-
-
-    def _process_single_attachment(self, part: Message, index: int,
-                                output_dir: str) -> Optional[Dict[str, Any]]:
-        """Process a single email attachment."""
-        filename = part.get_filename()
-        if not filename:
-            filename = f"attachment_{index}"
-        else:
-            # Strip null terminators and other problematic characters
-            filename = filename.rstrip('\x00').strip()
-
-        # FIXED: Clean content type to remove null bytes
-        content_type = part.get_content_type()
-        if content_type:
-            content_type = content_type.rstrip('\x00').strip()
-
-        logger.debug("Processing attachment %d: %s (%s)", index, filename, content_type)
-            
-        payload = part.get_payload(decode=True)
+    def _extract_urls_from_html(self, html_text: str) -> List[str]:
+        """Extract URLs from HTML content."""
+        from bs4 import BeautifulSoup
         
-        if not payload:
-            return None
-            
-        # Save attachment to disk
-        file_path = os.path.join(output_dir, filename)
         try:
-            with open(file_path, 'wb') as f:
-                f.write(payload)
-            logger.debug("Attachment %s written to %s", filename, file_path)
+            soup = BeautifulSoup(html_text, 'html.parser')
+            urls = []
+            
+            # Extract from href attributes
+            for link in soup.find_all(['a', 'link'], href=True):
+                urls.append(link['href'])
+                
+            # Extract from src attributes
+            for element in soup.find_all(['img', 'script', 'iframe'], src=True):
+                urls.append(element['src'])
+                
+            return [url for url in urls if url.startswith(('http://', 'https://'))]
         except Exception as e:
-            logger.error(f"Error saving attachment {filename}: {e}")
-            file_path = None
-        
-        # Basic file analysis
-        file_size = len(payload)
-        file_hash = hashlib.sha256(payload).hexdigest()
-        file_extension = Path(filename).suffix.lower()
-        
-        attachment_info = {
-            "index": index,
-            "filename": filename,
-            "content_type": content_type,  # Now cleaned of null bytes
-            "size": file_size,
-            "sha256": file_hash,
-            "extension": file_extension,
-            "disk_path": file_path,
-            "is_suspicious_extension": file_extension in self.SUSPICIOUS_EXTENSIONS,
-            "text_content": None,
-            "urls": [],
-            "processed": True
-        }
-        
-        # Extract text content if possible
-        if content_type in self.TEXT_EXTRACTABLE_TYPES:
-            text_content = self._extract_text_from_attachment(payload, content_type, filename)
-            if text_content:
-                attachment_info["text_content"] = text_content
-                # Extract URLs from text content
-                urls = self._extract_urls_from_text(text_content)
-                attachment_info["urls"] = urls
-        
-        # ENHANCED: Detect nested emails using multiple criteria
-        is_nested_email = (
-            content_type == "message/rfc822" or  # Traditional nested email
-            filename.lower().endswith('.eml') or  # .eml file attachment
-            self._is_email_content_heuristic(payload)  # Content analysis
-        )
-        
-        attachment_info["is_nested_email"] = is_nested_email
-        
-        if is_nested_email:
-            logger.info(f"Detected nested email attachment: {filename} (content_type: {content_type})")
+            logger.warning(f"Error extracting URLs from HTML: {e}")
+            return []
 
-        logger.debug(
-            "Attachment %s processed: size=%d, nested_email=%s, content_type=%s",
-            filename,
-            file_size,
-            is_nested_email,
-            content_type
-        )
 
-        return attachment_info
-
-    def _is_email_content_heuristic(self, data: bytes) -> bool:
-        """Enhanced heuristic to detect if attachment content is an email."""
-        try:
-            # Try to decode as text and look for email headers
-            if isinstance(data, bytes):
-                text_data = data.decode('utf-8', errors='replace')[:2000]  # Check first 2000 chars
+def main():
+    """Command line interface for the phishing email parser."""
+    if len(sys.argv) not in (2, 3):
+        print(f"Usage: {sys.argv[0]} <email_file> [output_file]")
+        print("  email_file: Path to .eml or .msg file")
+        print("  output_file: Optional JSON output file (default: stdout)")
+        sys.exit(1)
+    
+    email_file = sys.argv[1]
+    output_file = sys.argv[2] if len(sys.argv) == 3 else None
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    try:
+        with PhishingEmailParser() as parser:
+            result = parser.parse_email_file(email_file)
+            
+            if output_file:
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump(result, f, indent=2, ensure_ascii=False)
+                print(f"Results written to {output_file}")
             else:
-                text_data = str(data)[:2000]
-            
-            # Look for common email headers (more comprehensive list)
-            email_indicators = [
-                'Received:', 'From:', 'To:', 'Subject:', 'Date:', 'Message-ID:', 
-                'Return-Path:', 'X-Mailer:', 'MIME-Version:', 'Content-Type:',
-                'Delivered-To:', 'X-Originating-IP:', 'Authentication-Results:',
-                'DKIM-Signature:', 'Authentication-Results:'
-            ]
-            
-            found_headers = sum(1 for indicator in email_indicators if indicator in text_data)
-            
-            # Also check for typical email structure patterns
-            has_header_block = bool(re.search(r'^[A-Za-z-]+:\s+.+$', text_data, re.MULTILINE))
-            has_mime_boundary = 'boundary=' in text_data
-            
-            # If we find multiple email headers or typical email structure, it's likely an email
-            is_email = (found_headers >= 3) or (found_headers >= 2 and (has_header_block or has_mime_boundary))
-            
-            if is_email:
-                logger.debug(f"Content analysis detected email: {found_headers} headers found")
-            
-            return is_email
-            
-        except Exception as e:
-            logger.debug(f"Error in email content heuristic: {e}")
-            return False
+                print(json.dumps(result, indent=2, ensure_ascii=False))
+                
+    except Exception as e:
+        logger.error(f"Error parsing email: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
