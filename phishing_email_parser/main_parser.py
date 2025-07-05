@@ -99,7 +99,7 @@ class PhishingEmailParser:
             }
         }
         
-        # Walk through all message layers
+        # Walk through all message layers using the existing MIME walker
         for depth, msg, vendor_tag in walk_layers(root_msg):
             layer_data = self._parse_single_layer(msg, depth, vendor_tag, output_dir)
             result["message_layers"].append(layer_data)
@@ -113,7 +113,16 @@ class PhishingEmailParser:
                 })
             if depth > 0:
                 result["summary"]["has_nested_emails"] = True
-                
+        
+        # ADDED: After processing all MIME layers, check for nested email attachments
+        nested_layers = self._process_nested_email_attachments(result["message_layers"], output_dir)
+        result["message_layers"].extend(nested_layers)
+        
+        # Update summary counts after processing nested emails
+        result["summary"]["total_layers"] = len(result["message_layers"])
+        if nested_layers:
+            result["summary"]["has_nested_emails"] = True
+            
         # Aggregate URLs, attachments, and images across all layers
         all_urls = []
         total_attachments = 0
@@ -390,6 +399,76 @@ class PhishingEmailParser:
         except Exception as e:
             logger.warning(f"Error extracting URLs from HTML: {e}")
             return []
+        
+    def _process_nested_email_attachments(self, existing_layers: List[Dict], output_dir: str) -> List[Dict]:
+        """Process nested email attachments found in existing layers."""
+        nested_layers = []
+        
+        for layer in existing_layers:
+            current_depth = layer.get("layer_depth", 0)
+            attachments = layer.get("attachments", [])
+            
+            for attachment in attachments:
+                if attachment.get("is_nested_email", False):
+                    logger.info(f"Processing nested email attachment: {attachment['filename']}")
+                    
+                    try:
+                        nested_email_layers = self._parse_nested_email_attachment(
+                            attachment, current_depth + 1, output_dir
+                        )
+                        nested_layers.extend(nested_email_layers)
+                        
+                    except Exception as e:
+                        logger.error(f"Error parsing nested email {attachment['filename']}: {e}")
+                        # Add error info to the attachment
+                        attachment["nested_parse_error"] = str(e)
+        
+        return nested_layers
+
+    def _parse_nested_email_attachment(self, attachment: Dict, base_depth: int, output_dir: str) -> List[Dict]:
+        """Parse a single nested email attachment and return its layers."""
+        disk_path = attachment.get("disk_path")
+        if not disk_path or not os.path.exists(disk_path):
+            logger.warning(f"Nested email file not found: {disk_path}")
+            return []
+        
+        try:
+            # Load and parse the nested email file
+            with open(disk_path, 'rb') as f:
+                nested_msg = BytesParser(policy=policy.default).parse(f)
+            
+            logger.debug(f"Parsing nested email from {attachment['filename']} at depth {base_depth}")
+            
+            nested_layers = []
+            
+            # Walk through the nested email using the same logic
+            for depth, msg, vendor_tag in walk_layers(nested_msg):
+                # Adjust depth to be relative to the parent layer
+                adjusted_depth = base_depth + depth
+                
+                layer_data = self._parse_single_layer(msg, adjusted_depth, vendor_tag, output_dir)
+                
+                # Add metadata to show this came from a nested attachment
+                layer_data["parent_attachment"] = {
+                    "filename": attachment["filename"],
+                    "parent_layer_depth": base_depth - 1,
+                    "attachment_index": attachment.get("index")
+                }
+                
+                nested_layers.append(layer_data)
+                
+                logger.debug(f"Added nested layer at depth {adjusted_depth} from {attachment['filename']}")
+            
+            # Recursively process any nested emails found in this nested email
+            if nested_layers:
+                deeper_nested = self._process_nested_email_attachments(nested_layers, output_dir)
+                nested_layers.extend(deeper_nested)
+            
+            return nested_layers
+            
+        except Exception as e:
+            logger.error(f"Error parsing nested email file {disk_path}: {e}")
+            raise
 
 
 def main():

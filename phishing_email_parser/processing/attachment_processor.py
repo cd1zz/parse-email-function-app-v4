@@ -107,83 +107,6 @@ class AttachmentProcessor:
         logger.debug("Finished processing attachments: %d found", len(attachments))
         return attachments
     
-    def _process_single_attachment(self, part: Message, index: int,
-                                output_dir: str) -> Optional[Dict[str, Any]]:
-        """Process a single email attachment."""
-        filename = part.get_filename()
-        if not filename:
-            filename = f"attachment_{index}"
-        else:
-            # Strip null terminators and other problematic characters
-            filename = filename.rstrip('\x00').strip()
-
-        logger.debug("Processing attachment %d: %s (%s)", index, filename, part.get_content_type())
-            
-        content_type = part.get_content_type()
-        payload = part.get_payload(decode=True)
-        
-        if not payload:
-            return None
-            
-        # Save attachment to disk
-        file_path = os.path.join(output_dir, filename)
-        try:
-            with open(file_path, 'wb') as f:
-                f.write(payload)
-            logger.debug("Attachment %s written to %s", filename, file_path)
-        except Exception as e:
-            logger.error(f"Error saving attachment {filename}: {e}")
-            file_path = None
-        
-        # Basic file analysis
-        file_size = len(payload)
-        file_hash = hashlib.sha256(payload).hexdigest()
-        file_extension = Path(filename).suffix.lower()
-        
-        attachment_info = {
-            "index": index,
-            "filename": filename,
-            "content_type": content_type,  # FIXED: Preserve original content type
-            "size": file_size,
-            "sha256": file_hash,
-            "extension": file_extension,
-            "disk_path": file_path,
-            "is_suspicious_extension": file_extension in self.SUSPICIOUS_EXTENSIONS,
-            "text_content": None,
-            "urls": [],
-            "processed": True
-        }
-        
-        # Extract text content if possible
-        if content_type in self.TEXT_EXTRACTABLE_TYPES:
-            text_content = self._extract_text_from_attachment(payload, content_type, filename)
-            if text_content:
-                attachment_info["text_content"] = text_content
-                # Extract URLs from text content
-                urls = self._extract_urls_from_text(text_content)
-                attachment_info["urls"] = urls
-        
-        # FIXED: Detect nested emails based on multiple criteria, not just content type
-        is_nested_email = (
-            content_type == "message/rfc822" or  # Traditional nested email
-            filename.lower().endswith('.eml') or  # .eml file attachment
-            self._is_email_content_heuristic(payload)  # Content analysis
-        )
-        
-        attachment_info["is_nested_email"] = is_nested_email
-        
-        if is_nested_email:
-            logger.debug(f"Detected nested email: {filename} (content_type: {content_type})")
-
-        logger.debug(
-            "Attachment %s processed: size=%d, nested_email=%s, content_type=%s",
-            filename,
-            file_size,
-            is_nested_email,
-            content_type
-        )
-
-        return attachment_info
     
     def _extract_text_from_attachment(self, payload: bytes, content_type: str, 
                                     filename: str) -> Optional[str]:
@@ -201,7 +124,7 @@ class AttachmentProcessor:
                 return payload.decode('utf-8', errors='replace')
             elif content_type == 'text/html':
                 # Import here to avoid circular import
-                from .html_cleaner import PhishingEmailHtmlCleaner
+                from core.html_cleaner import PhishingEmailHtmlCleaner
                 html_text = payload.decode('utf-8', errors='replace')
                 return PhishingEmailHtmlCleaner.clean_html(html_text)
             elif content_type in [
@@ -271,6 +194,89 @@ class AttachmentProcessor:
         return list(set(cleaned_urls))  # Remove duplicates
     
 
+
+    def _process_single_attachment(self, part: Message, index: int,
+                                output_dir: str) -> Optional[Dict[str, Any]]:
+        """Process a single email attachment."""
+        filename = part.get_filename()
+        if not filename:
+            filename = f"attachment_{index}"
+        else:
+            # Strip null terminators and other problematic characters
+            filename = filename.rstrip('\x00').strip()
+
+        # FIXED: Clean content type to remove null bytes
+        content_type = part.get_content_type()
+        if content_type:
+            content_type = content_type.rstrip('\x00').strip()
+
+        logger.debug("Processing attachment %d: %s (%s)", index, filename, content_type)
+            
+        payload = part.get_payload(decode=True)
+        
+        if not payload:
+            return None
+            
+        # Save attachment to disk
+        file_path = os.path.join(output_dir, filename)
+        try:
+            with open(file_path, 'wb') as f:
+                f.write(payload)
+            logger.debug("Attachment %s written to %s", filename, file_path)
+        except Exception as e:
+            logger.error(f"Error saving attachment {filename}: {e}")
+            file_path = None
+        
+        # Basic file analysis
+        file_size = len(payload)
+        file_hash = hashlib.sha256(payload).hexdigest()
+        file_extension = Path(filename).suffix.lower()
+        
+        attachment_info = {
+            "index": index,
+            "filename": filename,
+            "content_type": content_type,  # Now cleaned of null bytes
+            "size": file_size,
+            "sha256": file_hash,
+            "extension": file_extension,
+            "disk_path": file_path,
+            "is_suspicious_extension": file_extension in self.SUSPICIOUS_EXTENSIONS,
+            "text_content": None,
+            "urls": [],
+            "processed": True
+        }
+        
+        # Extract text content if possible
+        if content_type in self.TEXT_EXTRACTABLE_TYPES:
+            text_content = self._extract_text_from_attachment(payload, content_type, filename)
+            if text_content:
+                attachment_info["text_content"] = text_content
+                # Extract URLs from text content
+                urls = self._extract_urls_from_text(text_content)
+                attachment_info["urls"] = urls
+        
+        # ENHANCED: Detect nested emails using multiple criteria
+        is_nested_email = (
+            content_type == "message/rfc822" or  # Traditional nested email
+            filename.lower().endswith('.eml') or  # .eml file attachment
+            self._is_email_content_heuristic(payload)  # Content analysis
+        )
+        
+        attachment_info["is_nested_email"] = is_nested_email
+        
+        if is_nested_email:
+            logger.info(f"Detected nested email attachment: {filename} (content_type: {content_type})")
+
+        logger.debug(
+            "Attachment %s processed: size=%d, nested_email=%s, content_type=%s",
+            filename,
+            file_size,
+            is_nested_email,
+            content_type
+        )
+
+        return attachment_info
+
     def _is_email_content_heuristic(self, data: bytes) -> bool:
         """Enhanced heuristic to detect if attachment content is an email."""
         try:
@@ -284,7 +290,8 @@ class AttachmentProcessor:
             email_indicators = [
                 'Received:', 'From:', 'To:', 'Subject:', 'Date:', 'Message-ID:', 
                 'Return-Path:', 'X-Mailer:', 'MIME-Version:', 'Content-Type:',
-                'Delivered-To:', 'X-Originating-IP:', 'Authentication-Results:'
+                'Delivered-To:', 'X-Originating-IP:', 'Authentication-Results:',
+                'DKIM-Signature:', 'Authentication-Results:'
             ]
             
             found_headers = sum(1 for indicator in email_indicators if indicator in text_data)
@@ -294,7 +301,13 @@ class AttachmentProcessor:
             has_mime_boundary = 'boundary=' in text_data
             
             # If we find multiple email headers or typical email structure, it's likely an email
-            return (found_headers >= 3) or (found_headers >= 2 and (has_header_block or has_mime_boundary))
+            is_email = (found_headers >= 3) or (found_headers >= 2 and (has_header_block or has_mime_boundary))
             
-        except Exception:
+            if is_email:
+                logger.debug(f"Content analysis detected email: {found_headers} headers found")
+            
+            return is_email
+            
+        except Exception as e:
+            logger.debug(f"Error in email content heuristic: {e}")
             return False
