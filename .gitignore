@@ -1,9 +1,10 @@
 # ============================================================================
 # Azure Functions Specific
 # ============================================================================
-zArchive
+zArchive/*
 *.eml
 *.msg
+test_emails/*
 # Local settings (contains secrets and connection strings)
 local.settings.json
 

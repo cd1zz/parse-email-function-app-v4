@@ -13,8 +13,9 @@ from pathlib import Path
 
 from .data_models import (
     EmailHeaders, EmailBody, AttachmentInfo, ImageInfo, URLInfo,
-    CarrierDetails, EmailLayer, ParsingResult, ParserConfiguration
+    CarrierDetails, EmailLayer, ParsingResult
 )
+from .config_manager import ParserConfiguration
 
 
 # ============================================================================
