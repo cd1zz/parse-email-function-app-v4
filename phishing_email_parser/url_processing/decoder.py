@@ -1,9 +1,13 @@
-"""Utilities for decoding wrapped URLs such as Microsoft SafeLinks and Proofpoint URLs."""
+# ============================================================================
+# phishing_email_parser/url_processing/decoder.py
+# ============================================================================
+"""Utilities for decoding wrapped URLs."""
 
 import logging
 import urllib.parse
 
 logger = logging.getLogger(__name__)
+
 
 class UrlDecoder:
     """URL decoder utilities."""
@@ -19,7 +23,7 @@ class UrlDecoder:
             target = query.get('url') or query.get('target')
             if target:
                 return target[0]
-        except Exception as e:  # pragma: no cover - log warning
+        except Exception as e:
             logger.warning(f"Error decoding SafeLinks URL {url}: {str(e)}")
         return url
 
@@ -35,6 +39,8 @@ class UrlDecoder:
                 encoded = query['u'][0]
                 decoded = urllib.parse.unquote(encoded)
                 return decoded
-        except Exception as e:  # pragma: no cover - log warning
+        except Exception as e:
             logger.warning(f"Error decoding Proofpoint URL {url}: {str(e)}")
         return url
+
+

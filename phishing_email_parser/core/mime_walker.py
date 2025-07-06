@@ -1,12 +1,8 @@
-# =============================================================
-# mime_walker.py
-# =============================================================
-"""Depth-first traversal of nested ``message/rfc822`` parts.
+# ============================================================================
+# phishing_email_parser/core/mime_walker.py
+# ============================================================================
+"""Depth-first traversal of nested ``message/rfc822`` parts."""
 
-This module provides :func:`walk_layers` which yields ``(depth, msg, vendor_tag)``
-for every message layer.  The top level has ``depth`` 0.  ``vendor_tag`` is
-``None`` unless :func:`detect_vendor` matched the message.
-"""
 from __future__ import annotations
 
 import logging
@@ -16,16 +12,14 @@ from email.message import Message
 from email.parser import BytesParser
 from typing import Generator, Optional, Tuple
 
-from .carrier_detector import detect_vendor
-
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _parse_bytes(b: bytes) -> Message | None:
     try:
         return BytesParser(policy=policy.default).parsebytes(b)
-    except Exception as exc:  # truly malformed
-        log.debug("parsebytes failed: %s", exc)
+    except Exception as exc:
+        logger.debug("parsebytes failed: %s", exc)
         return None
 
 
@@ -41,7 +35,7 @@ def _as_message(payload) -> Message | None:
     if msg and msg.keys():
         return msg
 
-    # ── auto-decode if payload is STILL base-64 (double-encoded nested mail) ──
+    # Auto-decode if payload is STILL base-64 (double-encoded nested mail)
     import base64
     if re.fullmatch(rb'[A-Za-z0-9+/=\r\n]{800,}', payload):    # looks like b64
         try:
@@ -53,7 +47,7 @@ def _as_message(payload) -> Message | None:
         except Exception:
             pass
 
-    # ── fallback: Outlook / OWA sometimes left-pads every header ──
+    # Fallback: Outlook / OWA sometimes left-pads every header
     m = re.search(rb"\r?\n\r?\n", payload)
     if not m:
         return msg
@@ -67,7 +61,13 @@ def _as_message(payload) -> Message | None:
 
 def walk_layers(msg: Message, depth: int = 0) -> Generator[Tuple[int, Message, Optional[str]], None, None]:
     """Yield ``(depth, Message, vendor_tag)`` for every layer."""
-    vendor_tag = detect_vendor(msg)
+    # Import here to avoid circular import
+    try:
+        from .carrier_detector import detect_vendor
+        vendor_tag = detect_vendor(msg)
+    except ImportError:
+        vendor_tag = None
+        
     yield depth, msg, vendor_tag
 
     for part in msg.walk():
@@ -81,7 +81,7 @@ def walk_layers(msg: Message, depth: int = 0) -> Generator[Tuple[int, Message, O
         if nested is None:
             continue
 
-        log.debug(
+        logger.debug(
             "Recurse into part due to content type message/rfc822 (depth %d)",
             depth + 1,
         )

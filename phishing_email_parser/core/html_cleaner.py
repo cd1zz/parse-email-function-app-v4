@@ -1,3 +1,6 @@
+# ============================================================================
+# phishing_email_parser/core/html_cleaner.py
+# ============================================================================
 """HTML to text cleaning using html2text for phishing analysis."""
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ class PhishingEmailHtmlCleaner:
     # Unicode replacements for problematic characters
     UNICODE_REPLACEMENTS = {
         '\u2018': "'",
-        '\u2019': "'",
+        '\u2019': "'", 
         '\u201C': '"',
         '\u201D': '"',
         '\u201A': "'",
@@ -131,10 +134,10 @@ class PhishingEmailHtmlCleaner:
         else:
             converted = cls._remove_invisible_chars_conservative(converted)
 
-        # FIXED: Do normalization BEFORE unicode character replacements
+        # Do normalization BEFORE unicode character replacements
         converted = unicodedata.normalize("NFKC", converted)
         
-        # FIXED: Replace problematic unicode chars AFTER normalization
+        # Replace problematic unicode chars AFTER normalization
         converted = cls._replace_problematic_unicode_chars(converted)
         
         converted = cls._normalize_whitespace(converted)
@@ -149,12 +152,6 @@ class PhishingEmailHtmlCleaner:
             converted = cls._remove_invisible_chars_aggressive(converted)
         else:
             converted = cls._remove_invisible_chars_conservative(converted)
-
-        # html2text in inline_links mode already preserves URLs inline. In
-        # previous versions we appended all extracted URLs as separate lines,
-        # which led to duplication when the parser also returns a dedicated URL
-        # list. The caller now relies on the artifact extraction pipeline
-        # instead, so no additional URL lines are added here.
 
         return converted.strip()
 
