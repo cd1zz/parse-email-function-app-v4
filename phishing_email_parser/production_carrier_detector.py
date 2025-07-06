@@ -15,15 +15,14 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from .interfaces import ICarrierDetector
 from .data_models import (
-    CarrierDetails, CarrierDetectionEvidence, CarrierType, AnalysisPriority,
-    create_carrier_details
+    CarrierDetails, CarrierDetectionEvidence, CarrierType, create_carrier_details
 )
 from .exceptions import handle_processing_errors, CarrierDetectionError
 
 # Import original patterns to ensure compatibility
 from .core.carrier_detector import (
     CARRIER_PATTERNS, USER_SUBMISSION_PATTERNS, enhanced_is_carrier,
-    get_carrier_analysis_priority, format_carrier_summary
+     format_carrier_summary
 )
 
 logger = logging.getLogger(__name__)
@@ -77,14 +76,7 @@ class ProductionCarrierDetector(ICarrierDetector):
             logger.error(f"Carrier detection failed: {e}")
             raise CarrierDetectionError(f"Failed to detect carrier: {e}")
     
-    def get_analysis_priority(self, vendor_tag: Optional[str]) -> str:
-        """
-        Get analysis priority based on carrier type.
-        
-        PRESERVES: Original priority logic from core/carrier_detector.py
-        """
-        return get_carrier_analysis_priority(vendor_tag)
-    
+  
     def format_carrier_summary(self, vendor_tag: Optional[str], details: Optional[CarrierDetails]) -> str:
         """
         Format human-readable carrier summary.

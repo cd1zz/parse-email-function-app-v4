@@ -122,17 +122,12 @@ class BodyExtractor(IBodyExtractor):
             else:
                 self._extract_single_part_body(msg, body_data)
             
-            # Use converted text if available, otherwise use plain text (original logic)
-            if body_data["converted_text"]:
-                final_text = body_data["converted_text"]
-            else:
-                final_text = body_data["plain_text"]
-            
+            # FIXED: Remove the manual final_text calculation since create_email_body handles it
             result = create_email_body(
                 plain_text=body_data["plain_text"],
                 html_text=body_data["html_text"],
                 converted_text=body_data["converted_text"],
-                final_text=final_text,
+                # REMOVED: final_text=final_text,  # This was causing the duplicate argument error
                 has_html=body_data["has_html"],
                 has_plain=body_data["has_plain"]
             )

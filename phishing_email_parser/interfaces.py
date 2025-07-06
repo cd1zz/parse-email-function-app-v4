@@ -124,11 +124,6 @@ class ICarrierDetector(ABC):
     def detect_carrier(self, msg: Message) -> tuple[bool, Optional[str], Optional[CarrierDetails]]:
         """Detect if message is a carrier email."""
         pass
-    
-    @abstractmethod
-    def get_analysis_priority(self, vendor_tag: Optional[str]) -> str:
-        """Get analysis priority based on carrier type."""
-        pass
 
 
 class IContentValidator(ABC):

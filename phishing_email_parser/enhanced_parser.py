@@ -1,23 +1,9 @@
 # ============================================================================
-# phishing_email_parser/refactored_parser.py
+# phishing_email_parser/enhanced_parser.py
 # ============================================================================
 """
-Production-ready email parser with dependency injection and SOLID principles.
-
-PRESERVES: ALL functionality from main_parser.py including:
-- Email parsing (.eml and .msg support)
-- Nested email detection and processing  
-- Attachment processing with Excel image extraction
-- URL extraction from all sources
-- Content deduplication
-- OCR capabilities
-- Carrier detection (both security appliances and user submissions)
-
-ENHANCES: 
-- SOLID architecture with dependency injection
-- Comprehensive error handling
-- Resource management
-- Type safety throughout
+Consolidated enhanced parser with pure structural representation and content consolidation.
+Combines the best of both refactored_parser.py and enhanced_parser.py.
 """
 
 import hashlib
@@ -31,30 +17,25 @@ from email import policy
 from email.message import Message
 from email.parser import BytesParser
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Set
+from typing import List, Optional, Dict, Any, Set
 
-# Core imports - using existing functionality
+# Core imports
 from .core.mime_walker import walk_layers
 from .processing.msg_converter import MSGConverter
 from .url_processing.processor import UrlProcessor
 
-# New architecture imports
-from .interfaces import (
-    IParser, IHeaderExtractor, IBodyExtractor, IAttachmentProcessor,
-    IImageProcessor, IURLProcessor, ICarrierDetector, IDeduplicator,
-    IResourceManager, IContentValidator
-)
+# Enhanced components
 from .data_models import (
-    ParsingResult, EmailLayer, ProcessingSummary, CarrierAnalysis,
-    create_parsing_result, create_email_layer, AnalysisPriority
+    EmailLayer, ParsingResult, StructuralSummary, ConsolidatedContent, 
+    LayerReference, create_email_layer, create_parsing_result, 
+    create_layer_reference, CarrierAnalysis
 )
+from .content_consolidator import ContentConsolidator, LayerRelationshipBuilder
 from .config_manager import ParserConfiguration, get_default_config
-from .exceptions import (
-    handle_processing_errors, EmailParsingError, AttachmentProcessingError,
-    SecurityViolationError, ResourceManagementError
-)
+from .exceptions import handle_processing_errors, EmailParsingError, SecurityViolationError, ResourceManagementError
+from .interfaces import IParser, IHeaderExtractor, IBodyExtractor, IAttachmentProcessor, IImageProcessor, IURLProcessor, ICarrierDetector, IDeduplicator, IResourceManager, IContentValidator
 
-# Import existing processors to preserve functionality
+# Import existing processors
 from .processing.attachment_processor import AttachmentProcessor
 from .core_extractors import HeaderExtractor, BodyExtractor
 from .production_carrier_detector import ProductionCarrierDetector
@@ -63,12 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 class ContentDeduplicator(IDeduplicator):
-    """
-    Content deduplicator to prevent processing duplicate content across layers.
-    
-    PRESERVES: All original deduplication logic from EmailContentDeduplicator
-    ENHANCES: Implements interface and adds better logging
-    """
+    """Content deduplicator to prevent processing duplicate content across layers."""
     
     def __init__(self):
         self.processed_content_hashes: Set[str] = set()
@@ -76,11 +52,7 @@ class ContentDeduplicator(IDeduplicator):
         self.layer_content_signatures: Dict[int, str] = {}
     
     def generate_content_signature(self, msg: Message) -> str:
-        """
-        Generate a unique signature for email content.
-        
-        PRESERVES: Exact logic from original EmailContentDeduplicator
-        """
+        """Generate a unique signature for email content."""
         # Combine key identifying fields
         subject = msg.get("subject", "").strip()
         from_addr = msg.get("from", "").strip()
@@ -112,11 +84,7 @@ class ContentDeduplicator(IDeduplicator):
         return hashlib.sha256(signature_data.encode("utf-8")).hexdigest()[:16]
     
     def is_duplicate_content(self, msg: Message, current_depth: int) -> bool:
-        """
-        Check if this message content has already been processed.
-        
-        PRESERVES: Exact logic from original EmailContentDeduplicator
-        """
+        """Check if this message content has already been processed."""
         # Check by Message-ID first (most reliable)
         message_id = msg.get("message-id", "").strip()
         if message_id and message_id in self.processed_message_ids:
@@ -140,11 +108,7 @@ class ContentDeduplicator(IDeduplicator):
         return False
     
     def mark_as_processed(self, msg: Message, depth: int) -> None:
-        """
-        Mark this message as processed to prevent future duplicates.
-        
-        PRESERVES: Exact logic from original EmailContentDeduplicator
-        """
+        """Mark this message as processed to prevent future duplicates."""
         message_id = msg.get("message-id", "").strip()
         if message_id:
             self.processed_message_ids.add(message_id)
@@ -237,11 +201,7 @@ class ContentValidator(IContentValidator):
 
 
 class ImageProcessor(IImageProcessor):
-    """
-    Image processing with OCR capabilities.
-    
-    PRESERVES: All original OCR functionality from _extract_images_with_ocr
-    """
+    """Image processing with OCR capabilities."""
     
     def __init__(self, config: ParserConfiguration):
         self.config = config
@@ -265,11 +225,7 @@ class ImageProcessor(IImageProcessor):
     
     @handle_processing_errors("image extraction with OCR")
     def extract_images_with_ocr(self, msg: Message, output_dir: str) -> List[Dict[str, Any]]:
-        """
-        Extract images and perform OCR.
-        
-        PRESERVES: Complete logic from original _extract_images_with_ocr method
-        """
+        """Extract images and perform OCR."""
         self._check_ocr_dependencies()
         
         images = []
@@ -281,11 +237,11 @@ class ImageProcessor(IImageProcessor):
                 content_id = part.get("Content-ID")
                 filename = part.get_filename() or f"image_{image_idx}.png"
 
-                # PRESERVED: Strip null terminators and other problematic characters
+                # Strip null terminators and other problematic characters
                 if filename:
                     filename = filename.rstrip("\x00").strip()
 
-                # PRESERVED: Clean content type
+                # Clean content type
                 if ctype:
                     ctype = ctype.rstrip("\x00").strip()
 
@@ -305,7 +261,7 @@ class ImageProcessor(IImageProcessor):
                     # Perform OCR
                     ocr_text = self.perform_ocr(payload, filename)
 
-                # PRESERVED: Clean content_id of null bytes too
+                # Clean content_id of null bytes too
                 clean_content_id = None
                 if content_id:
                     clean_content_id = content_id.rstrip("\x00").strip()
@@ -324,11 +280,7 @@ class ImageProcessor(IImageProcessor):
         return images
     
     def perform_ocr(self, image_data: bytes, filename: str) -> Optional[str]:
-        """
-        Perform OCR on image data.
-        
-        PRESERVES: Original OCR logic
-        """
+        """Perform OCR on image data."""
         if not self._ocr_available or not self.config.ocr.enabled:
             return None
         
@@ -357,21 +309,13 @@ class ImageProcessor(IImageProcessor):
 
 
 class URLProcessorWrapper(IURLProcessor):
-    """
-    Wrapper for existing URL processor to implement interface.
-    
-    PRESERVES: All original URL processing functionality
-    """
+    """Wrapper for existing URL processor to implement interface."""
     
     def __init__(self, config: ParserConfiguration):
         self.config = config
     
     def extract_all_urls(self, body_data, attachments: List[Any], images: List[Dict]) -> List[Dict]:
-        """
-        Extract and process URLs from body, attachments, and images.
-        
-        PRESERVES: Complete logic from original _extract_all_urls method
-        """
+        """Extract and process URLs from body, attachments, and images."""
         all_urls = []
 
         # Extract URLs from email body
@@ -412,7 +356,7 @@ class URLProcessorWrapper(IURLProcessor):
         return urls
     
     def _extract_urls_from_text(self, text: str) -> List[str]:
-        """Extract URLs from plain text (preserved from original)."""
+        """Extract URLs from plain text."""
         url_pattern = re.compile(
             r'https?://[^\s<>"{}|\\^`\[\]]+|www\.[^\s<>"{}|\\^`\[\]]+', re.IGNORECASE
         )
@@ -420,7 +364,7 @@ class URLProcessorWrapper(IURLProcessor):
         return [url.rstrip(".,;:!?)]}") for url in urls]
     
     def _extract_urls_from_html(self, html_text: str) -> List[str]:
-        """Extract URLs from HTML content (preserved from original)."""
+        """Extract URLs from HTML content."""
         from bs4 import BeautifulSoup
         
         try:
@@ -441,12 +385,60 @@ class URLProcessorWrapper(IURLProcessor):
             return []
 
 
-class ProductionEmailParser(IParser):
-    """
-    Production-ready email parser with dependency injection.
+class BodyContentSeparator:
+    """Handles separation of carrier wrapper content from quoted/forwarded content."""
     
-    PRESERVES: ALL functionality from PhishingEmailParser class
-    ENHANCES: SOLID architecture, dependency injection, comprehensive error handling
+    @staticmethod
+    def analyze_carrier_content(body: Dict[str, Any], is_carrier: bool) -> Dict[str, Any]:
+        """Analyze carrier email body to separate wrapper from quoted content."""
+        if not is_carrier:
+            return body
+        
+        final_text = body.get('final_text', '')
+        if not final_text:
+            return body
+        
+        # Detect forwarding patterns
+        wrapper_indicators = [
+            r"-----Original Message-----",
+            r"Begin forwarded message:",
+            r"^From:\s*.+@.+",
+            r"^Sent:\s*.+",
+            r"forwarded for (analysis|review)",
+            r"please (analyze|check|review)",
+            r"flagged as suspicious"
+        ]
+        
+        wrapper_content = ""
+        quoted_content_start = -1
+        
+        lines = final_text.split('\n')
+        for i, line in enumerate(lines):
+            for pattern in wrapper_indicators:
+                if re.search(pattern, line, re.IGNORECASE | re.MULTILINE):
+                    if "original message" in line.lower() or "forwarded message" in line.lower():
+                        quoted_content_start = i
+                        wrapper_content = '\n'.join(lines[:i]).strip()
+                        break
+            if quoted_content_start >= 0:
+                break
+        
+        # If we found a clear separation, provide both parts
+        if quoted_content_start >= 0 and wrapper_content:
+            body['wrapper_content'] = wrapper_content
+            body['quoted_content_preview'] = '\n'.join(lines[quoted_content_start:quoted_content_start+5])
+            body['content_summary'] = f"Carrier email with {len(wrapper_content)} chars wrapper content"
+        else:
+            # No clear separation found, treat as unified content
+            body['content_summary'] = f"Carrier email with {len(final_text)} chars total content"
+        
+        return body
+
+
+class EnhancedProductionParser(IParser):
+    """
+    Enhanced parser that provides pure structural representation.
+    Combines the best components from both refactored and enhanced parsers.
     """
     
     def __init__(
@@ -463,7 +455,7 @@ class ProductionEmailParser(IParser):
         config: ParserConfiguration,
         msg_converter: Optional[MSGConverter] = None
     ):
-        """Initialize parser with injected dependencies."""
+        """Initialize enhanced parser with all dependencies."""
         self.header_extractor = header_extractor
         self.body_extractor = body_extractor
         self.attachment_processor = attachment_processor
@@ -475,6 +467,11 @@ class ProductionEmailParser(IParser):
         self.content_validator = content_validator
         self.config = config
         self.msg_converter = msg_converter or MSGConverter()
+        
+        # Add enhanced components
+        self.content_consolidator = ContentConsolidator()
+        self.relationship_builder = LayerRelationshipBuilder()
+        self.body_separator = BodyContentSeparator()
         
         # Processing metadata
         self.processing_start_time = None
@@ -488,14 +485,9 @@ class ProductionEmailParser(IParser):
         """Context manager exit with cleanup."""
         self.resource_manager.cleanup_resources()
     
-    @handle_processing_errors("email file parsing")
+    @handle_processing_errors("enhanced email file parsing")
     def parse_email_file(self, email_path: str) -> ParsingResult:
-        """
-        Parse an email file (.eml or .msg) and return structured data.
-        
-        PRESERVES: Complete logic from original parse_email_file method
-        ENHANCES: Uses dependency injection and structured result
-        """
+        """Parse email file with enhanced structural representation."""
         self.processing_start_time = time.time()
         
         email_path = Path(email_path)
@@ -513,7 +505,7 @@ class ProductionEmailParser(IParser):
         file_size = email_path.stat().st_size
         self.content_validator.validate_file_size(file_size, email_path.name)
 
-        # Convert .msg to .eml if needed (preserved logic)
+        # Convert .msg to .eml if needed
         if email_path.suffix.lower() == ".msg":
             temp_dir = self.resource_manager.create_temp_directory()
             eml_path = self.msg_converter.convert_msg_to_eml(str(email_path), temp_dir)
@@ -523,25 +515,16 @@ class ProductionEmailParser(IParser):
         with open(email_path, "rb") as f:
             msg = BytesParser(policy=policy.default).parse(f)
 
-        try:
-            return self.parse_message(msg, str(email_path.parent))
-        except AttachmentProcessingError as exc:
-            raise EmailParsingError(f"Attachment processing failed: {exc}") from exc
+        return self.parse_message(msg, str(email_path.parent))
     
-    @handle_processing_errors("message parsing")
+    @handle_processing_errors("enhanced message parsing")
     def parse_message(self, msg: Message, output_dir: str) -> ParsingResult:
-        """
-        Parse an email message object.
+        """Parse message with enhanced structural representation."""
+        logger.info("Starting enhanced message parsing with pure structural representation")
         
-        PRESERVES: Complete logic from original _parse_message_structure method
-        ENHANCES: Structured return and dependency injection
-        """
-        logger.info("Starting message parsing with enhanced architecture")
+        enhanced_layers = []
         
-        result_layers = []
-        carrier_analysis = CarrierAnalysis()
-        
-        # Walk through all message layers using existing MIME walker (PRESERVED)
+        # Walk through all message layers using existing MIME walker
         for depth, layer_msg, vendor_tag in walk_layers(msg):
             # Validate nesting depth
             self.content_validator.validate_nesting_depth(depth)
@@ -554,111 +537,117 @@ class ProductionEmailParser(IParser):
             # Mark as processed before parsing
             self.deduplicator.mark_as_processed(layer_msg, depth)
 
-            layer_data = self._parse_single_layer(layer_msg, depth, vendor_tag, output_dir)
-            result_layers.append(layer_data)
-            
-            # Update carrier analysis
-            self._update_carrier_analysis(layer_data, carrier_analysis)
+            enhanced_layer = self._parse_single_enhanced_layer(
+                layer_msg, depth, vendor_tag, output_dir
+            )
+            enhanced_layers.append(enhanced_layer)
             
             self.layers_processed += 1
 
-        # Process attachment-based nested emails (PRESERVED functionality)
-        nested_layers = self._process_nested_email_attachments(result_layers, output_dir)
-        result_layers.extend(nested_layers)
+        # Process attachment-based nested emails
+        nested_layers = self._process_nested_email_attachments_enhanced(
+            enhanced_layers, output_dir
+        )
+        enhanced_layers.extend(nested_layers)
 
-        # Generate final result
+        # Build layer relationships
+        self.relationship_builder.build_layer_relationships(enhanced_layers)
+
+        # Consolidate all content with provenance tracking
+        consolidated_content = self.content_consolidator.consolidate_all_content(enhanced_layers)
+
+        # Generate structural summary
+        structural_summary = self._generate_structural_summary(enhanced_layers)
+
+        # Generate nesting chain description
+        nesting_chain = self._generate_nesting_chain(enhanced_layers)
+        structural_summary.nesting_chain = nesting_chain
+
+        # Create carrier detection summary (pure detection, no analysis)
+        carrier_analysis = self._generate_carrier_analysis(enhanced_layers)
+
+        # Generate final enhanced result
         processing_time = time.time() - self.processing_start_time if self.processing_start_time else 0
         
         result = create_parsing_result(
-            message_layers=result_layers,
+            layers=enhanced_layers,
+            consolidated_content=consolidated_content,
+            structural_summary=structural_summary,
             carrier_analysis=carrier_analysis,
             processing_metadata={
                 "processing_time_seconds": processing_time,
                 "layers_processed": self.layers_processed,
-                "architecture_version": "2.0_solid_di"
+                "architecture_version": "2.0_enhanced_consolidated"
             }
         )
         
-        # Generate analysis recommendations
-        self._generate_analysis_recommendations(result)
-        
-        logger.info(f"Parsing complete: {len(result_layers)} layers, {processing_time:.2f}s")
+        logger.info(
+            f"Enhanced parsing complete: {len(enhanced_layers)} layers, "
+            f"{len(consolidated_content.all_urls)} URLs, "
+            f"{len(consolidated_content.all_attachments)} attachments, "
+            f"{processing_time:.2f}s"
+        )
         
         return result
     
-    def _parse_single_layer(
+    def _parse_single_enhanced_layer(
         self, msg: Message, depth: int, vendor_tag: Optional[str], output_dir: str
     ) -> EmailLayer:
-        """
-        Parse a single message layer.
-        
-        PRESERVES: Complete logic from original _parse_single_layer method
-        ENHANCES: Uses dependency injection and structured data models
-        """
-        logger.debug(f"Parsing layer {depth}, vendor: {vendor_tag}")
+        """Parse a single message layer with enhanced structure."""
+        logger.debug(f"Parsing enhanced layer {depth}, vendor: {vendor_tag}")
 
         # Enhanced carrier detection
         is_carrier, enhanced_vendor_tag, carrier_details = self.carrier_detector.detect_carrier(msg)
         final_vendor_tag = enhanced_vendor_tag or vendor_tag
-        
-        # Determine analysis priority
-        analysis_priority = AnalysisPriority.LOW if is_carrier else AnalysisPriority.HIGH
-        carrier_summary = self.carrier_detector.format_carrier_summary(final_vendor_tag, carrier_details)
 
-        # Extract headers and body using injected extractors
+        # Extract headers and body using existing extractors
         headers = self.header_extractor.extract_headers(msg)
-        body = self.body_extractor.extract_body(msg)
+        body_data = self.body_extractor.extract_body(msg)
 
-        # Process attachments using injected processor
+        # Convert body to dict format for analysis
+        body_dict = body_data.to_dict()
+        
+        # Analyze carrier content separation
+        enhanced_body_dict = self.body_separator.analyze_carrier_content(body_dict, is_carrier)
+        
+        # Reconstruct body object with enhanced data
+        from .data_models import create_email_body
+        enhanced_body = create_email_body(**enhanced_body_dict)
+
+        # Process attachments using existing processor
         attachment_results = self.attachment_processor.process_attachments(msg, output_dir)
         
         # Validate attachment count
         self.content_validator.validate_attachment_count(len(attachment_results))
-        
-        # Convert attachment results to proper format
-        attachments = []
-        for att_dict in attachment_results:
-            # Handle both dict and AttachmentInfo objects
-            if hasattr(att_dict, 'to_dict'):
-                attachments.append(att_dict)
-            else:
-                # Convert dict to structured format if needed
-                attachments.append(att_dict)
 
-        # Extract images with OCR using injected processor
+        # Extract images with OCR using existing processor
         images = self.image_processor.extract_images_with_ocr(msg, output_dir)
 
-        # Extract and process URLs using injected processor
-        url_results = self.url_processor.extract_all_urls(body, attachments, images)
+        # Extract and process URLs using existing processor
+        url_results = self.url_processor.extract_all_urls(enhanced_body, attachment_results, images)
 
-        # Create structured email layer
-        layer = create_email_layer(
+        # Create enhanced email layer
+        enhanced_layer = create_email_layer(
             layer_depth=depth,
             is_carrier_email=is_carrier,
             headers=headers,
-            body=body,
+            body=enhanced_body,
             carrier_vendor=final_vendor_tag,
             carrier_details=carrier_details,
-            analysis_priority=analysis_priority,
-            carrier_summary=carrier_summary,
-            attachments=attachments,
+            attachments=attachment_results,
             images=images,
             urls=url_results
         )
 
         # Log layer processing
-        self._log_layer_processing(layer)
+        self._log_enhanced_layer_processing(enhanced_layer)
         
-        return layer
+        return enhanced_layer
     
-    def _process_nested_email_attachments(
+    def _process_nested_email_attachments_enhanced(
         self, existing_layers: List[EmailLayer], output_dir: str
     ) -> List[EmailLayer]:
-        """
-        Process nested email attachments.
-        
-        PRESERVES: Logic from _process_nested_email_attachments_dedupe method
-        """
+        """Process nested email attachments with enhanced tracking."""
         nested_layers = []
 
         for layer in existing_layers:
@@ -677,8 +666,8 @@ class ProductionEmailParser(IParser):
                     logger.info(f"Processing nested email: {attachment_dict['filename']}")
 
                     try:
-                        nested_email_layers = self._parse_nested_email_attachment(
-                            attachment_dict, current_depth + 1, output_dir
+                        nested_email_layers = self._parse_nested_email_attachment_enhanced(
+                            attachment_dict, current_depth + 1, output_dir, layer
                         )
                         nested_layers.extend(nested_email_layers)
 
@@ -688,12 +677,12 @@ class ProductionEmailParser(IParser):
 
         return nested_layers
     
-    def _parse_nested_email_attachment(
-        self, attachment: Dict, base_depth: int, output_dir: str
+    def _parse_nested_email_attachment_enhanced(
+        self, attachment: Dict, base_depth: int, output_dir: str, parent_layer: EmailLayer
     ) -> List[EmailLayer]:
-        """Parse a nested email attachment."""
+        """Parse a nested email attachment with enhanced relationship tracking."""
         disk_path = attachment.get("disk_path")
-        if not disk_path or not os.path.exists(disk_path):
+        if not disk_path or not Path(disk_path).exists():
             logger.warning(f"Nested email file not found: {disk_path}")
             return []
 
@@ -721,16 +710,20 @@ class ProductionEmailParser(IParser):
                 # Mark as processed
                 self.deduplicator.mark_as_processed(msg, adjusted_depth)
 
-                layer_data = self._parse_single_layer(msg, adjusted_depth, vendor_tag, output_dir)
+                enhanced_layer = self._parse_single_enhanced_layer(
+                    msg, adjusted_depth, vendor_tag, output_dir
+                )
 
-                # Add metadata showing this came from a nested attachment
-                layer_data.parent_attachment = {
-                    "filename": attachment["filename"],
-                    "parent_layer_depth": base_depth - 1,
-                    "attachment_index": attachment.get("index"),
-                }
+                # Add enhanced parent reference
+                parent_ref = create_layer_reference(
+                    layer_depth=parent_layer.layer_depth,
+                    relationship="attached_to_layer",
+                    via_attachment=attachment["filename"],
+                    via_mime_type=attachment.get("content_type")
+                )
+                enhanced_layer.parent_reference = parent_ref
 
-                nested_layers.append(layer_data)
+                nested_layers.append(enhanced_layer)
 
             return nested_layers
 
@@ -738,89 +731,114 @@ class ProductionEmailParser(IParser):
             logger.error(f"Error parsing nested email file {disk_path}: {e}")
             raise
     
-    def _update_carrier_analysis(self, layer_data: EmailLayer, carrier_analysis: CarrierAnalysis) -> None:
-        """Update carrier analysis with information from a processed layer."""
-        if not layer_data.is_carrier_email:
-            return
-
-        carrier_analysis.total_carriers += 1
-
-        if layer_data.carrier_details:
-            if layer_data.carrier_details.carrier_type.value == "security_appliance":
-                carrier_analysis.security_appliances.append({
-                    "layer": layer_data.layer_depth,
-                    "vendor": layer_data.carrier_vendor,
-                    "detection_method": layer_data.carrier_details.detection_method,
-                })
-            else:  # User submission
-                evidence = layer_data.carrier_details.evidence
-                carrier_analysis.user_submissions.append({
-                    "layer": layer_data.layer_depth,
-                    "submission_type": layer_data.carrier_vendor,
-                    "confidence_score": evidence.confidence_score if evidence else 0,
-                    "evidence_count": len(evidence.structural_indicators) if evidence else 0,
-                    "summary": layer_data.carrier_summary,
-                })
+    def _generate_structural_summary(self, layers: List[EmailLayer]) -> StructuralSummary:
+        """Generate structural summary without analytical judgments."""
+        
+        layer_types = []
+        for layer in layers:
+            layer_type = {
+                "layer": layer.layer_depth,
+                "type": "carrier" if layer.is_carrier_email else "content",
+                "vendor": layer.carrier_vendor,
+                "has_nested_refs": len(layer.nested_email_references) > 0,
+                "has_parent_ref": layer.parent_reference is not None,
+                "content_summary": getattr(layer.body, 'content_summary', None)
+            }
+            layer_types.append(layer_type)
+        
+        return StructuralSummary(
+            total_layers=len(layers),
+            total_attachments=sum(len(layer.attachments) for layer in layers),
+            total_images=sum(len(layer.images) for layer in layers),
+            total_urls=sum(len(layer.urls) for layer in layers),
+            has_nested_emails=any(layer.layer_depth > 0 for layer in layers),
+            layer_types=layer_types
+        )
     
-    def _generate_analysis_recommendations(self, result: ParsingResult) -> None:
-        """Generate LLM analysis recommendations based on carrier detection."""
-        recommendations = []
-        high_priority_layers = []
-
-        for layer in result.message_layers:
-            if layer.analysis_priority == AnalysisPriority.HIGH:
-                high_priority_layers.append(layer.layer_depth)
-
-        if high_priority_layers:
-            recommendations.append({
-                "priority": "HIGH",
-                "action": "focus_analysis",
-                "layers": high_priority_layers,
-                "reason": "These layers contain non-carrier content and should be the primary focus of threat analysis",
-            })
-
-        if result.carrier_analysis.user_submissions:
-            recommendations.append({
-                "priority": "MEDIUM",
-                "action": "validate_submission_context",
-                "reason": "User-submitted carriers detected - validate internal submission workflow and sender legitimacy",
-            })
-
-        if result.carrier_analysis.security_appliances:
-            recommendations.append({
-                "priority": "LOW",
-                "action": "review_security_processing",
-                "reason": "Security appliance processing detected - review why email reached analysis",
-            })
-
-        result.carrier_analysis.analysis_recommendations = recommendations
+    def _generate_nesting_chain(self, layers: List[EmailLayer]) -> List[str]:
+        """Generate a description of the nesting chain."""
+        chain = []
+        
+        for layer in sorted(layers, key=lambda l: l.layer_depth):
+            if layer.is_carrier_email:
+                chain.append(f"carrier_email_layer_{layer.layer_depth}")
+            elif layer.parent_reference and layer.parent_reference.via_attachment:
+                filename = layer.parent_reference.via_attachment
+                if filename.lower().endswith('.eml'):
+                    chain.append(f"nested_eml_layer_{layer.layer_depth}")
+                elif filename.lower().endswith(('.xlsx', '.xls')):
+                    chain.append(f"excel_attachment_layer_{layer.layer_depth}")
+                else:
+                    chain.append(f"attachment_{filename}_layer_{layer.layer_depth}")
+            else:
+                chain.append(f"content_layer_{layer.layer_depth}")
+        
+        return chain
     
-    def _log_layer_processing(self, layer_data: EmailLayer) -> None:
-        """Log layer processing details for debugging."""
-        depth = layer_data.layer_depth
-        subject = layer_data.headers.subject[:50] if layer_data.headers.subject else "No Subject"
-        from_addr = layer_data.headers.from_addr[:30] if layer_data.headers.from_addr else "No From"
+    def _generate_carrier_analysis(self, layers: List[EmailLayer]) -> CarrierAnalysis:
+        """Generate pure carrier detection analysis without judgments."""
+        
+        detected_carriers = []
+        non_carrier_layers = []
+        
+        for layer in layers:
+            if layer.is_carrier_email:
+                carrier_info = {
+                    "layer": layer.layer_depth,
+                    "vendor": layer.carrier_vendor,
+                    "detection_summary": layer.carrier_summary
+                }
+                
+                if layer.carrier_details:
+                    carrier_info.update({
+                        "type": layer.carrier_details.carrier_type.value,
+                        "confidence": layer.carrier_details.confidence,
+                        "detection_method": layer.carrier_details.detection_method
+                    })
+                
+                detected_carriers.append(carrier_info)
+            else:
+                non_carrier_layers.append(layer.layer_depth)
+        
+        return CarrierAnalysis(
+            total_carriers=len(detected_carriers),
+            carrier_details=detected_carriers,
+            non_carrier_layers=non_carrier_layers
+        )
+    
+    def _log_enhanced_layer_processing(self, layer: EmailLayer) -> None:
+        """Log enhanced layer processing details."""
+        depth = layer.layer_depth
+        subject = layer.headers.subject[:50] if layer.headers.subject else "No Subject"
+        from_addr = layer.headers.from_addr[:30] if layer.headers.from_addr else "No From"
 
         carrier_info = ""
-        if layer_data.is_carrier_email:
-            carrier_info = f" [{layer_data.carrier_vendor} - {layer_data.analysis_priority.value}]"
+        if layer.is_carrier_email:
+            carrier_info = f" [CARRIER: {layer.carrier_vendor}]"
 
-        logger.info(f"Layer {depth}: '{subject}' from '{from_addr}'{carrier_info}")
+        logger.info(f"Enhanced Layer {depth}: '{subject}' from '{from_addr}'{carrier_info}")
 
-        if layer_data.parent_attachment:
-            parent_info = layer_data.parent_attachment
-            logger.info(f"  ↳ From attachment: {parent_info['filename']}")
+        content_summary = getattr(layer.body, 'content_summary', None)
+        if content_summary:
+            logger.debug(f"  Content: {content_summary}")
+
+        if layer.parent_reference:
+            parent_info = layer.parent_reference
+            logger.info(f"  ↳ Child of layer {parent_info.layer_depth} via {parent_info.via_attachment}")
+
+        if layer.nested_email_references:
+            for ref in layer.nested_email_references:
+                logger.info(f"  ↳ Contains layer {ref.layer_depth} via {ref.via_attachment}")
 
 
-# Factory function for creating complete parser with dependency injection
-def create_production_parser(
+# Factory function for creating enhanced parser
+def create_enhanced_parser(
     config: Optional[ParserConfiguration] = None,
     temp_dir: Optional[str] = None
-) -> ProductionEmailParser:
+) -> EnhancedProductionParser:
     """
-    Factory function to create fully configured production parser.
-    
-    This preserves the simple interface while using dependency injection internally.
+    Factory function to create fully configured enhanced parser.
+    Combines the best of both parsers with enhanced capabilities.
     """
     if config is None:
         config = get_default_config()
@@ -831,17 +849,14 @@ def create_production_parser(
     # Create all dependencies
     header_extractor = HeaderExtractor()
     body_extractor = BodyExtractor(aggressive_cleaning=config.processing.aggressive_html_cleaning)
-    
-    # Use existing AttachmentProcessor for compatibility
     attachment_processor = AttachmentProcessor(resource_manager.temp_dir, config)
-    
     image_processor = ImageProcessor(config)
     url_processor = URLProcessorWrapper(config)
     carrier_detector = ProductionCarrierDetector()
     deduplicator = ContentDeduplicator()
     content_validator = ContentValidator(config)
     
-    return ProductionEmailParser(
+    return EnhancedProductionParser(
         header_extractor=header_extractor,
         body_extractor=body_extractor,
         attachment_processor=attachment_processor,

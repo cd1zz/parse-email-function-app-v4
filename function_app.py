@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Modern Azure Function App for Phishing Email Parser - Production Architecture
+Modern Azure Function App for Phishing Email Parser - Enhanced Architecture
 
-Clean implementation using SOLID principles and dependency injection.
-Designed for new Logic App integrations with modern JSON API patterns.
+Clean implementation using SOLID principles with pure structural representation.
+Designed for new Logic App integrations with consolidated content tracking.
 """
 
 import logging
@@ -15,8 +15,8 @@ import os
 import time
 from typing import Dict, Any, Optional
 
-# Import production parser architecture
-from phishing_email_parser.refactored_parser import create_production_parser
+# Import enhanced parser architecture
+from phishing_email_parser.enhanced_parser import create_enhanced_parser
 from phishing_email_parser.config_manager import get_azure_config
 from phishing_email_parser.exceptions import (
     PhishingParserError, EmailParsingError, SecurityViolationError,
@@ -44,10 +44,10 @@ def get_parser():
     global _global_parser, _parser_config
     
     if _global_parser is None:
-        logger.info("Initializing production email parser")
+        logger.info("Initializing enhanced email parser")
         _parser_config = get_azure_config()
-        _global_parser = create_production_parser(config=_parser_config)
-        logger.info("Parser initialized successfully")
+        _global_parser = create_enhanced_parser(config=_parser_config)
+        logger.info("Enhanced parser initialized successfully")
     
     return _global_parser
 
@@ -97,42 +97,120 @@ def parse_request_data(req: func.HttpRequest) -> tuple[bytes, str]:
 
 
 def create_success_response(result: ParsingResult, format_type: str = "standard") -> Dict[str, Any]:
-    """Create structured success response."""
+    """Create structured success response with enhanced data."""
     response = {
         "success": True,
         "timestamp": time.time(),
         "data": None,
         "metadata": {
             "parser_version": "2.0.0",
-            "architecture": "solid_di_production",
-            "total_layers": result.summary.total_layers,
-            "total_attachments": result.summary.total_attachments,
-            "total_urls": result.summary.total_urls,
+            "architecture": "enhanced_structural_representation",
+            "total_layers": result.structural_summary.total_layers,
+            "total_attachments": result.structural_summary.total_attachments,
+            "total_urls": result.structural_summary.total_urls,
             "processing_time": result.processing_metadata.get("processing_time_seconds", 0)
         }
     }
     
     if format_type == "summary":
         response["data"] = {
-            "summary": result.summary.to_dict(),
+            "structural_summary": result.structural_summary.to_dict(),
             "carrier_analysis": result.carrier_analysis.to_dict(),
-            "high_priority_layers": [
-                layer.layer_depth for layer in result.message_layers 
-                if layer.analysis_priority.value == "HIGH"
-            ]
+            "consolidated_content_counts": {
+                "total_urls": len(result.consolidated_content.all_urls),
+                "total_images": len(result.consolidated_content.all_images),
+                "total_attachments": len(result.consolidated_content.all_attachments),
+                "content_chains": len(result.consolidated_content.content_chains)
+            }
         }
     elif format_type == "detailed":
         response["data"] = result.to_dict()
+    elif format_type == "llm_optimized":
+        # Special format optimized for LLM consumption
+        response["data"] = create_llm_optimized_response(result)
     else:  # standard
-        # Optimized response with key information
+        # Enhanced response with key information and consolidated content
         response["data"] = {
-            "summary": result.summary.to_dict(),
-            "message_layers": [layer.to_dict() for layer in result.message_layers],
-            "carrier_analysis": result.carrier_analysis.to_dict(),
-            "analysis_recommendations": result.carrier_analysis.analysis_recommendations
+            "structural_summary": result.structural_summary.to_dict(),
+            "layers": [layer.to_dict() for layer in result.layers],
+            "consolidated_content": result.consolidated_content.to_dict(),
+            "carrier_analysis": result.carrier_analysis.to_dict()
         }
     
     return response
+
+
+def create_llm_optimized_response(result: ParsingResult) -> Dict[str, Any]:
+    """Create LLM-optimized response with focused threat content."""
+    
+    # Extract non-carrier layers (primary threat content)
+    threat_layers = []
+    for layer in result.layers:
+        if not layer.is_carrier_email:
+            layer_summary = {
+                "layer_depth": layer.layer_depth,
+                "subject": layer.headers.subject[:100],
+                "from": layer.headers.from_addr[:50],
+                "body_preview": layer.body.final_text[:500] + "..." if len(layer.body.final_text) > 500 else layer.body.final_text,
+                "attachment_count": len(layer.attachments),
+                "url_count": len(layer.urls),
+                "image_count": len(layer.images)
+            }
+            if layer.parent_reference:
+                layer_summary["source"] = f"Nested in layer {layer.parent_reference.layer_depth} via {layer.parent_reference.via_attachment}"
+            threat_layers.append(layer_summary)
+    
+    # Extract URLs with full provenance
+    threat_urls = []
+    for url in result.consolidated_content.all_urls:
+        url_analysis = {
+            "url": url.original_url,
+            "is_shortened": url.is_shortened,
+            "found_in_layer": url.found_in.layer if url.found_in else None,
+            "source_type": url.found_in.source if url.found_in else "unknown",
+            "context": url.found_in.context_snippet if url.found_in else None
+        }
+        
+        # Add specific provenance details
+        if url.found_in:
+            if url.found_in.attachment_filename:
+                url_analysis["found_in_attachment"] = url.found_in.attachment_filename
+            if url.found_in.image_filename:
+                url_analysis["found_in_image"] = url.found_in.image_filename
+                url_analysis["threat_pattern"] = "url_in_image"
+        
+        threat_urls.append(url_analysis)
+    
+    # Extract content chains (suspicious patterns)
+    suspicious_patterns = []
+    for chain in result.consolidated_content.content_chains:
+        pattern_analysis = {
+            "pattern_type": chain["type"],
+            "complexity_indicators": chain.get("complexity_indicators", []),
+            "chain_description": " → ".join([
+                f"{step['type']}({step.get('filename', step.get('value', step.get('depth', 'unknown')))[:30]})" 
+                for step in chain["chain"]
+            ])
+        }
+        suspicious_patterns.append(pattern_analysis)
+    
+    return {
+        "email_structure": {
+            "total_layers": result.structural_summary.total_layers,
+            "nesting_chain": result.structural_summary.nesting_chain,
+            "layer_types": result.structural_summary.layer_types
+        },
+        "threat_content": {
+            "primary_threat_layers": threat_layers,
+            "all_urls_with_provenance": threat_urls,
+            "suspicious_content_patterns": suspicious_patterns
+        },
+        "carrier_context": {
+            "total_carriers": result.carrier_analysis.total_carriers,
+            "carrier_details": result.carrier_analysis.carrier_details,
+            "submission_method": result.carrier_analysis.carrier_details[0] if result.carrier_analysis.carrier_details else None
+        }
+    }
 
 
 def create_error_response(error: Exception) -> tuple[Dict[str, Any], int]:
@@ -179,24 +257,24 @@ def create_error_response(error: Exception) -> tuple[Dict[str, Any], int]:
 @app.route(methods=["POST"], route="parse")
 def parse_email(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Primary email parsing endpoint for Logic App integration.
+    Primary email parsing endpoint with enhanced structural representation.
     
     Request Body (JSON):
     {
         "email_data": "base64_encoded_email_content",
         "filename": "optional_filename.eml",
-        "format": "standard|summary|detailed"
+        "format": "standard|summary|detailed|llm_optimized"
     }
     
     Response:
     {
         "success": true,
         "timestamp": 1234567890,
-        "data": { ... parsed email data ... },
+        "data": { ... enhanced parsed email data ... },
         "metadata": { ... processing metadata ... }
     }
     """
-    logger.info("Processing email parsing request")
+    logger.info("Processing email parsing request with enhanced parser")
     
     try:
         # Parse request data
@@ -204,12 +282,12 @@ def parse_email(req: func.HttpRequest) -> func.HttpResponse:
         
         # Get response format
         format_type = req.params.get('format', 'standard')
-        if format_type not in ['standard', 'summary', 'detailed']:
+        if format_type not in ['standard', 'summary', 'detailed', 'llm_optimized']:
             format_type = 'standard'
         
         logger.info(f"Processing email: {filename} ({len(email_data)} bytes, format: {format_type})")
         
-        # Get parser instance
+        # Get enhanced parser instance
         parser = get_parser()
         
         # Create temporary file for processing
@@ -218,16 +296,16 @@ def parse_email(req: func.HttpRequest) -> func.HttpResponse:
             temp_file_path = temp_file.name
         
         try:
-            # Parse email using production architecture
+            # Parse email using enhanced architecture
             with parser:
                 result = parser.parse_email_file(temp_file_path)
             
             # Create structured response
             response_data = create_success_response(result, format_type)
             
-            logger.info(f"Successfully parsed email: {result.summary.total_layers} layers, "
-                       f"{result.summary.total_attachments} attachments, "
-                       f"{result.summary.total_urls} URLs")
+            logger.info(f"Successfully parsed email: {result.structural_summary.total_layers} layers, "
+                       f"{len(result.consolidated_content.all_urls)} URLs (deduplicated), "
+                       f"{len(result.consolidated_content.all_attachments)} attachments")
             
             return func.HttpResponse(
                 json.dumps(response_data, ensure_ascii=False, indent=2),
@@ -265,7 +343,7 @@ def parse_email(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(methods=["POST"], route="parse/batch")
 def parse_email_batch(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Batch email parsing endpoint for processing multiple emails.
+    Batch email parsing endpoint with enhanced processing.
     
     Request Body (JSON):
     {
@@ -279,7 +357,7 @@ def parse_email_batch(req: func.HttpRequest) -> func.HttpResponse:
                 "filename": "email2.eml"
             }
         ],
-        "format": "summary"
+        "format": "summary|llm_optimized"
     }
     """
     logger.info("Processing batch email parsing request")
@@ -380,18 +458,18 @@ def parse_email_batch(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # ============================================================================
-# ANALYSIS ENDPOINT
+# LLM-OPTIMIZED ANALYSIS ENDPOINT
 # ============================================================================
 
 @app.function_name("analyze_email")
 @app.route(methods=["POST"], route="analyze")
 def analyze_email(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Email analysis endpoint focused on threat analysis and recommendations.
+    Email analysis endpoint optimized for LLM consumption.
     
-    Returns analysis-focused response with threat indicators and recommendations.
+    Returns structured threat analysis with consolidated content and provenance tracking.
     """
-    logger.info("Processing email analysis request")
+    logger.info("Processing LLM-optimized email analysis request")
     
     try:
         email_data, filename = parse_request_data(req)
@@ -405,46 +483,19 @@ def analyze_email(req: func.HttpRequest) -> func.HttpResponse:
             with parser:
                 result = parser.parse_email_file(temp_file_path)
             
-            # Create analysis-focused response
-            high_priority_layers = [
-                layer for layer in result.message_layers 
-                if layer.analysis_priority.value == "HIGH"
-            ]
-            
-            threat_indicators = []
-            for layer in high_priority_layers:
-                if layer.urls:
-                    threat_indicators.extend([
-                        {"type": "url", "value": url.original_url, "layer": layer.layer_depth}
-                        for url in layer.urls
-                    ])
-                
-                if layer.attachments:
-                    for att in layer.attachments:
-                        if att.is_suspicious_extension:
-                            threat_indicators.append({
-                                "type": "suspicious_attachment",
-                                "value": att.filename,
-                                "layer": layer.layer_depth
-                            })
+            # Create LLM-optimized analysis response
+            llm_data = create_llm_optimized_response(result)
             
             analysis_response = {
                 "success": True,
                 "timestamp": time.time(),
-                "analysis": {
-                    "threat_level": "HIGH" if high_priority_layers else "LOW",
-                    "priority_layers": [layer.layer_depth for layer in high_priority_layers],
-                    "threat_indicators": threat_indicators,
-                    "carrier_analysis": result.carrier_analysis.to_dict(),
-                    "recommendations": result.carrier_analysis.analysis_recommendations,
-                    "summary": {
-                        "total_layers": result.summary.total_layers,
-                        "total_urls": result.summary.total_urls,
-                        "total_attachments": result.summary.total_attachments,
-                        "has_nested_emails": result.summary.has_nested_emails
-                    }
-                },
-                "filename": filename
+                "analysis": llm_data,
+                "filename": filename,
+                "processing_notes": {
+                    "content_deduplication": "URLs, images, and attachments deduplicated across layers",
+                    "provenance_tracking": "Each element includes full source location information",
+                    "structural_preservation": "Email nesting hierarchy maintained for threat analysis"
+                }
             }
             
             return func.HttpResponse(
@@ -485,17 +536,20 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "service": {
                 "name": "phishing-email-parser",
                 "version": "2.0.0",
-                "architecture": "solid_di_production"
+                "architecture": "enhanced_structural_representation"
             },
             "endpoints": [
-                "POST /api/parse",
-                "POST /api/parse/batch", 
-                "POST /api/analyze",
-                "GET  /api/health",
-                "GET  /api/status"
+                "POST /api/parse - Enhanced email parsing with content consolidation",
+                "POST /api/parse/batch - Batch email processing", 
+                "POST /api/analyze - LLM-optimized threat analysis",
+                "GET  /api/health - Health check",
+                "GET  /api/status - Detailed status"
             ],
             "features": {
-                "enhanced_carrier_detection": config.processing.enable_enhanced_carrier_detection,
+                "content_consolidation": True,
+                "provenance_tracking": True,
+                "structural_preservation": True,
+                "carrier_detection": config.processing.enable_enhanced_carrier_detection,
                 "content_deduplication": config.processing.enable_deduplication,
                 "ocr_enabled": config.ocr.enabled,
                 "url_expansion": config.url_processing.enable_expansion,
@@ -529,7 +583,7 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
 @app.function_name("status")
 @app.route(methods=["GET"], route="status")
 def get_status(req: func.HttpRequest) -> func.HttpResponse:
-    """Detailed status endpoint with performance metrics."""
+    """Detailed status endpoint with enhanced parser information."""
     try:
         parser = get_parser()
         
@@ -538,10 +592,12 @@ def get_status(req: func.HttpRequest) -> func.HttpResponse:
             "version": "2.0.0",
             "timestamp": time.time(),
             "parser_initialized": parser is not None,
-            "architecture": "solid_di_production",
+            "architecture": "enhanced_structural_representation",
             "dependencies": {
                 "azure_functions": True,
-                "production_parser": True,
+                "enhanced_parser": True,
+                "content_consolidator": True,
+                "provenance_tracking": True,
                 "ocr_libraries": _parser_config.ocr.enabled if _parser_config else False,
                 "excel_processing": True,
                 "url_processing": True
@@ -550,7 +606,9 @@ def get_status(req: func.HttpRequest) -> func.HttpResponse:
                 "environment": "azure_function",
                 "cold_start_optimization": True,
                 "dependency_injection": True,
-                "structured_error_handling": True
+                "structured_error_handling": True,
+                "content_deduplication": True,
+                "llm_optimization": True
             }
         }
         
@@ -569,10 +627,10 @@ def get_status(req: func.HttpRequest) -> func.HttpResponse:
 
 
 if __name__ == "__main__":
-    logger.info("Phishing Email Parser Azure Function App - Production Version")
+    logger.info("Phishing Email Parser Azure Function App - Enhanced Version")
     logger.info("Available endpoints:")
-    logger.info("  POST /api/parse - Primary email parsing")
+    logger.info("  POST /api/parse - Enhanced email parsing with content consolidation")
     logger.info("  POST /api/parse/batch - Batch email processing")
-    logger.info("  POST /api/analyze - Threat analysis focused")
+    logger.info("  POST /api/analyze - LLM-optimized threat analysis")
     logger.info("  GET  /api/health - Health check")
     logger.info("  GET  /api/status - Detailed status")

@@ -59,6 +59,12 @@ class ProcessingConfiguration:
     preserve_excel_images: bool = True
     max_ocr_text_length: int = 10000
     max_body_text_length: int = 50000
+    max_html_text_length: int = 5000  # Truncate HTML after this many chars
+    include_html_in_response: bool = True  # Whether to include html_text at all
+    html_truncation_suffix: str = "...[truncated]"  # What to append when truncated
+    
+    # Alternative: percentage-based truncation
+    html_truncation_percentage: float = 0.1  # Show only first 10% of HTML
 
 
 @dataclass(frozen=True)
@@ -154,7 +160,11 @@ def get_config_from_env() -> ParserConfiguration:
         aggressive_html_cleaning=_get_bool_env("PARSER_AGGRESSIVE_HTML_CLEANING", True),
         preserve_excel_images=_get_bool_env("PARSER_PRESERVE_EXCEL_IMAGES", True),
         max_ocr_text_length=_get_int_env("PARSER_MAX_OCR_TEXT_LENGTH", 10000),
-        max_body_text_length=_get_int_env("PARSER_MAX_BODY_TEXT_LENGTH", 50000)
+        max_body_text_length=_get_int_env("PARSER_MAX_BODY_TEXT_LENGTH", 50000),
+        max_html_text_length=_get_int_env("PARSER_MAX_HTML_TEXT_LENGTH", 5000),
+        include_html_in_response=_get_bool_env("PARSER_INCLUDE_HTML_IN_RESPONSE", True),
+        html_truncation_suffix=os.getenv("PARSER_HTML_TRUNCATION_SUFFIX", "...[truncated]"),
+        html_truncation_percentage=_get_float_env("PARSER_HTML_TRUNCATION_PERCENTAGE", 0.1)
     )
     
     # Logging Configuration
